@@ -125,18 +125,25 @@
   }
 
   function sanitizeMessage(message) {
+    const jointGroupIds = Array.isArray(message.jointGroupIds)
+      ? [...new Set(message.jointGroupIds.map(Number))].sort((a, b) => a - b)
+      : [];
     const result = {
       id: Number(message.id),
       mode: String(message.mode),
       stage: String(message.stage),
       role: String(message.role),
       event: String(message.event || "NONE"),
+      jointGroupIds,
     };
     if (!Number.isInteger(result.id)) throw new Error("Message id must be an integer");
     if (!Object.values(Mode).includes(result.mode)) throw new Error(`Unsupported message mode: ${result.mode}`);
     if (!Object.values(Stage).includes(result.stage)) throw new Error(`Unsupported message stage: ${result.stage}`);
     if (!Object.values(Role).includes(result.role)) throw new Error(`Unsupported message role: ${result.role}`);
     if (!Object.values(MessageEvent).includes(result.event)) throw new Error(`Unsupported message event: ${result.event}`);
+    if (!result.jointGroupIds.every(Number.isInteger) || result.jointGroupIds.length > 3) {
+      throw new Error("JointCW group identifiers must contain at most three integers");
+    }
     return result;
   }
 
@@ -211,7 +218,11 @@
       throw new Error(`Unsupported own-result direction: ${localView.lastOwnResult.direction}`);
     }
     for (const [index, message] of localView.messages.entries()) {
-      requireExactKeys(message, ["id", "mode", "stage", "role", "event"], `localView.messages[${index}]`);
+      requireExactKeys(
+        message,
+        ["id", "mode", "stage", "role", "event", "jointGroupIds"],
+        `localView.messages[${index}]`,
+      );
       sanitizeMessage(message);
     }
     return true;
