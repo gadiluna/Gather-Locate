@@ -8,6 +8,7 @@
     PebbleOperation,
     Role,
     Stage,
+    phaseForRound,
   } = GLSim;
 
   const RETURN_EVENT = GLSim.MessageEvent.RETURN_COMPLETED;
@@ -210,7 +211,7 @@
     return returnModes.has(memory.mode) && memory.stage === Stage.RETURNED;
   }
 
-  function isPhase2Round(memory) {
+  function isPostPhase1Round(memory) {
     return memory.round > 6 * memory.n;
   }
 
@@ -288,9 +289,21 @@
   }
 
   function setForward(memory) {
-    memory.mode = Mode.FORWARD;
+    memory.phase = 3;
+    memory.mode = Mode.PHASE3_SEARCH;
     memory.role = Role.FORWARD;
     memory.stage = Stage.MOVING;
+    memory.expectReturn = false;
+    memory.jointPartnerId = null;
+    memory.jointGroupIds = [];
+    memory.reportActive = false;
+    memory.ownPebbleOutstanding = false;
+  }
+
+  function setPhase2Idle(memory) {
+    memory.mode = Mode.PHASE2_IDLE;
+    memory.role = Role.NONE;
+    memory.stage = Stage.WAITING;
     memory.expectReturn = false;
     memory.jointPartnerId = null;
     memory.jointGroupIds = [];
@@ -405,7 +418,7 @@
     // that cautious step.
     const peerProbe = view.messages.some((message) => message.event === PROBE_EVENT);
     if (
-      !isPhase2Round(memory)
+      !isPostPhase1Round(memory)
       && completedIds.size > 0
       && pendingProbeIds.size > 0
     ) {
@@ -429,7 +442,7 @@
       return;
     }
     if (
-      !isPhase2Round(memory)
+      !isPostPhase1Round(memory)
       && (selfIsProbe || (peerProbe && view.ports.counterClockwise))
       && !hasCommittedJointStep(memory)
     ) {
@@ -452,7 +465,7 @@
       return;
     }
 
-    if (sourceModes.has(Mode.JOINT_AVANGUARD) && !isPhase2Round(memory)) {
+    if (sourceModes.has(Mode.JOINT_AVANGUARD) && !isPostPhase1Round(memory)) {
       const requiredPartners = memory.jointGroupIds.length > 1
         ? memory.jointGroupIds.filter((id) => id !== memory.id)
         : [memory.jointPartnerId].filter(Number.isInteger);
@@ -484,8 +497,7 @@
       return;
     }
 
-    if (isPhase2Round(memory) || sourceModes.has(Mode.PHASE2_RETURN)) {
-      memory.phase = 2;
+    if (isPostPhase1Round(memory) || sourceModes.has(Mode.PHASE2_RETURN)) {
       // Select the new procedure's action after simultaneous pebble recovery,
       // using decide()'s post-recovery view but still in this activation.
       plan.modeActionAfterPebble = true;
@@ -503,9 +515,12 @@
         setBCPRole(memory, ids);
         plan.departureThisRound = memory.role === Role.AGGRESSIVE_LEADER;
         setAction(plan, Action.STAY, "the return meets a waiting agent; both start BackwardCP");
-      } else {
+      } else if (memory.phase >= 3) {
         setForward(memory);
-        setAction(plan, Action.STAY, "the returning agent is alone and enters Forward after recovering its pebble");
+        setAction(plan, Action.STAY, "the returning agent is isolated and assumes the Forward role in Phase 3");
+      } else {
+        setPhase2Idle(memory);
+        setAction(plan, Action.STAY, "the returning agent is isolated and waits for the Phase-3 boundary");
       }
       return;
     }
@@ -565,7 +580,7 @@
       memory.jointPartnerId = null;
       memory.jointGroupIds = [];
     } else {
-      setForward(memory);
+      setPhase2Idle(memory);
     }
   }
 
@@ -783,10 +798,10 @@
         if (memory.p2Elapsed >= timeout && !view.ports.counterClockwise) {
           if (view.pebbleCount > 0) {
             const claim = claimClockwiseNeighbour(memory, "Forward encountered the permanent black-hole mark");
-            terminate(plan, claim, "enter Forward and identify the clockwise neighbour of the pebble already at this node");
+            terminate(plan, claim, "at Phase-3 entry, Forward identifies the clockwise neighbour of the pebble already at this node");
           } else {
             setForward(memory);
-            setAction(plan, Action.MOVE_CW, "the 4n^2 rounds ended while the return remained blocked; enter Forward");
+            setAction(plan, Action.MOVE_CW, "the Phase-2 timeout expired while the return remained blocked; assume Forward in Phase 3");
           }
         } else {
           if (view.ports.counterClockwise) memory.stage = Stage.RETURNED;
@@ -799,15 +814,19 @@
       case Mode.PHASE2_WAIT: {
         const timeout = 4 * memory.n * memory.n;
         if (memory.p2Elapsed >= timeout && !view.ports.clockwise) {
-          if (view.pebbleCount > 0) requestPebble(plan, PebbleOperation.TAKE_ALL, 0, "remove the temporary pebble at timeout");
+          if (view.pebbleCount > 0) requestPebble(plan, PebbleOperation.TAKE_ALL, 0, "remove the local pebble before the Phase-3 Forward transition");
           setForward(memory);
-          setAction(plan, Action.MOVE_CW, "the 4n^2 rounds ended while separation persisted; enter Forward");
+          setAction(plan, Action.MOVE_CW, "the Phase-2 timeout expired and the clockwise edge is absent; assume Forward in Phase 3");
         } else {
           memory.p2Elapsed += 1;
-          setAction(plan, Action.STAY, "wait for the Phase-2 returning agent");
+          setAction(plan, Action.STAY, "wait for a possible returning pebble owner");
         }
         break;
       }
+
+      case Mode.PHASE2_IDLE:
+        setAction(plan, Action.STAY, "wait until Phase 3 before assuming the Forward role");
+        break;
 
       case Mode.BCP_AGGRESSIVE_LEADER:
         if (view.pebbleCount > 0 || memory.stage === Stage.AT_MARK) {
@@ -830,17 +849,17 @@
         }
         break;
 
-      case Mode.FORWARD: {
+      case Mode.PHASE3_SEARCH: {
         if (view.pebbleCount > 0) {
           const claim = claimClockwiseNeighbour(memory, "Forward encountered the permanent black-hole mark");
           terminate(plan, claim, "Forward sees a pebble and identifies its clockwise neighbour");
           break;
         }
-        const forwardPeers = view.messages.filter((message) => message.mode === Mode.FORWARD);
+        const forwardPeers = view.messages.filter((message) => message.role === Role.FORWARD);
         if (forwardPeers.length === 1 && allIds(memory, view).length === 2) {
           setBCPRole(memory, allIds(memory, view));
           plan.departureThisRound = memory.role === Role.AGGRESSIVE_LEADER;
-          setAction(plan, Action.STAY, "two Forward agents meet and start BackwardCP");
+          planModeAction(plan, view);
         } else if (forwardPeers.length > 1) {
           setAction(plan, Action.STAY, "unreachable configuration: three Forward agents are co-located");
         } else {
@@ -861,6 +880,7 @@
   function computePlan(originalMemory, view) {
     GLSim.validateLocalView(view);
     const memory = GLSim.clone(originalMemory);
+    memory.phase = phaseForRound(memory.round, memory.n);
     const plan = defaultPlan(memory, "evaluate local rules");
     const selfReturned = isSelfReturned(memory);
     const peerReturned = hasReturn(view);
@@ -891,7 +911,7 @@
 
     if (handleLeaderRetroguard(plan, view)) return plan;
 
-    if (memory.round === 6 * memory.n + 1 && memory.phase === 1) {
+    if (memory.round === 6 * memory.n + 1 && originalMemory.phase === 1) {
       enterPhase2(plan, view);
     }
 
@@ -939,7 +959,7 @@
     }
 
     if (
-      memory.phase === 2
+      memory.phase === 3
       && memory.mode !== Mode.PHASE2_RETURN
       && memory.mode !== Mode.PHASE2_WAIT
       && memory.mode !== Mode.RT_LEADER
@@ -947,7 +967,7 @@
       && memory.mode !== Mode.RT_RETROGUARD
       && memory.mode !== Mode.BCP_AGGRESSIVE_LEADER
       && memory.mode !== Mode.BCP_RETROGUARD
-      && memory.mode !== Mode.FORWARD
+      && memory.mode !== Mode.PHASE3_SEARCH
     ) {
       setForward(memory);
     }
@@ -1033,7 +1053,7 @@
       }
 
       if (pending.plan.modeActionAfterPebble && memory.mode !== Mode.TERMINATED) {
-        const actionPlan = defaultPlan(memory, "select the post-recovery Phase-2 action");
+        const actionPlan = defaultPlan(memory, "select the post-recovery action");
         actionPlan.departureThisRound = pending.plan.departureThisRound;
         actionPlan.cautiousDepartureThisRound = pending.plan.cautiousDepartureThisRound;
         planModeAction(actionPlan, postPebbleView);

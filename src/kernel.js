@@ -480,7 +480,7 @@
       return GLSim.deepFreeze({
         n: this.n,
         round: this.round,
-        phase: this.round <= 6 * this.n ? 1 : 2,
+        phase: GLSim.phaseForRound(this.round, this.n),
         blackHole: this.blackHole,
         missingEdge: this.missingEdge,
         moves: this.moves,

@@ -65,8 +65,13 @@ function checkFrame(frame, label) {
   assert(!frame.claims.some((claim) => claim.correct !== true),
     `${label}: an invalid or unsupported termination occurred`);
   assert(frame.agents.filter((agent) =>
-    agent.status === "ACTIVE" && agent.memory.mode === G.Mode.FORWARD,
+    agent.status === "ACTIVE" && agent.memory.role === G.Role.FORWARD,
   ).length <= 2, `${label}: a legal execution placed three agents in Forward`);
+  assert(!frame.agents.some((agent) =>
+    agent.status === "ACTIVE"
+    && agent.memory.role === G.Role.FORWARD
+    && agent.memory.phase !== 3,
+  ), `${label}: the Forward role appeared outside Phase 3`);
 
   const cautiousPendulumStarted = frame.agents.some((agent) =>
     agent.memory && agent.memory.mode.startsWith("RT_"));
