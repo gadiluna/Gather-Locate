@@ -18,16 +18,6 @@ containing only:
 - the number of pebbles at the current anonymous node;
 - the result of the agent's own preceding action.
 
-The machine never receives a node number, the black-hole position, the number
-of survivors, a remote position, a remote pebble, or another agent's private
-memory. There are no shared `JointCW`, `CautiousPendulum`, or `BackwardCP`
-objects.
-
-`Simulation` is a neutral synchronous kernel. It keeps the physical truth
-needed to resolve movements, missing edges, pebbles, and black-hole entries.
-Its observer frame is read-only and is used only by the GUI and the correctness
-oracle; it is never passed back to an agent.
-
 ## Controls
 
 - Configure the ring size, black-hole node, and the three distinct safe starts.
@@ -49,19 +39,3 @@ Run the complete automated suite with:
 ```sh
 node tests/run-all.js
 ```
-
-Open `tests/tests.html` in a browser. The suite checks local-view isolation,
-determinism, rotation invariance, edge blocking, pebble marking, role
-handshakes, timeout boundaries, and relative black-hole claims. It also runs
-permanent cuts both incident to and away from the black hole, reachable
-two-survivor `Forward` and `BackwardCP` executions, and rotating, shielding,
-probe-blocking, and other adaptive one-edge adversaries.
-
-The implementation files are deliberately separated:
-
-- `src/protocol.js`: local capabilities and finite protocol values;
-- `src/gl-agent.js`: the pure per-agent state machine;
-- `src/kernel.js`: synchronous ring mechanics and passive oracle;
-- `src/schedulers.js`: valid one-missing-edge schedules;
-- `src/scenarios.js`: reproducible initial executions;
-- `src/ui.js`: observer rendering and controls.
