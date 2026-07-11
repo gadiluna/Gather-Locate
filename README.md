@@ -1,6 +1,6 @@
 # Gather&Locate Simulator
 
-This is a dependency-free browser simulator for the algorithm \(\mathrm{GL}\)
+This is a dependency-free browser simulator for the algorithm Gather&Locate
 described in Section 5 of the paper. Open `index.html` directly in a modern
 browser; no Node.js runtime, package installation, build command, or web server
 is required.
