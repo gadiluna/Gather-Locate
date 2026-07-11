@@ -33,9 +33,10 @@
     RT_RETROGUARD: "RT_RETROGUARD",
     PHASE2_WAIT: "PHASE2_WAIT",
     PHASE2_RETURN: "PHASE2_RETURN",
+    PHASE2_IDLE: "PHASE2_IDLE",
     BCP_AGGRESSIVE_LEADER: "BCP_AGGRESSIVE_LEADER",
     BCP_RETROGUARD: "BCP_RETROGUARD",
-    FORWARD: "FORWARD",
+    PHASE3_SEARCH: "PHASE3_SEARCH",
     TERMINATED: "TERMINATED",
   });
 
@@ -93,6 +94,14 @@
 
   function mod(value, modulus) {
     return ((value % modulus) + modulus) % modulus;
+  }
+
+  function phaseForRound(round, n) {
+    const phase1End = 6 * n;
+    const phase2End = phase1End + 4 * n * n;
+    if (round <= phase1End) return 1;
+    if (round <= phase2End) return 2;
+    return 3;
   }
 
   function clone(value) {
@@ -268,6 +277,7 @@
     makeClaim,
     makeLocalView,
     mod,
+    phaseForRound,
     stableStringify,
     validateLocalView,
   });

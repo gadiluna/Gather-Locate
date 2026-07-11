@@ -30,19 +30,22 @@ oracle; it is never passed back to an agent.
 
 ## Implemented protocol
 
-Phase 1 lasts through round `6n`. An agent that has not joined another agent
-performs clockwise Cautious Walk as a singleton. When available agents meet,
+Phase 1 consists exactly of rounds `1,...,6n`; it forms one logical cautious
+group. An agent that has not joined another agent performs clockwise Cautious
+Walk as a singleton. When available agents meet,
 they form a two- or three-member `JointCW` group and continue the same cautious
 clockwise exploration. The largest-identifier member is the Avanguard; every
-other member is a leader. Thus, a three-member group has one Avanguard and two
-leaders. Completed cautious-step returns are handled before a group is formed
-or its roles are changed.
+other member is a Joint Leader. Thus, a three-member group has one Avanguard
+and two Joint Leaders. Completed cautious-step returns are handled before a
+group is formed or its roles are changed.
 
 A three-member group remains in `JointCW` for the rest of Phase 1:
-CautiousPendulum (`RT`) never starts before the phase boundary. Phase 2 begins
-in round `6n+1`. At that point, three co-located agents start `RT`, while two
-co-located agents start `BackwardCP`; the remaining split configurations use
-the Phase 2 return and `Forward` rules described in the paper.
+CautiousPendulum (`RT`) never starts before the phase boundary. With
+`T = 4n^2`, Phase 2 consists exactly of rounds `6n+1,...,6n+T`; it dispatches
+the Phase-1 boundary configuration to `RT` or `BackwardCP` and gives a pending
+cautious return `T` rounds to complete. Phase 3 begins in round `6n+T+1` and
+finishes every unresolved execution. `Forward` is a role, never a mode or
+state, and it may be assigned only in Phase 3.
 
 ## Controls
 
