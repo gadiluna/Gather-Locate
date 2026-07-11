@@ -1,9 +1,11 @@
-# GL local-state simulator
+# Gather&Locate Simulator
 
 This is a dependency-free browser simulator for the algorithm \(\mathrm{GL}\)
 described in Section 5 of the paper. Open `index.html` directly in a modern
 browser; no Node.js runtime, package installation, build command, or web server
 is required.
+
+Live simulator: https://gadiluna.github.io/Gather-Locate/
 
 ## Locality boundary
 
@@ -41,6 +43,12 @@ oracle; it is never passed back to an agent.
 - Toggle observer truth to show or hide node numbers and the black hole.
 
 ## Tests
+
+Run the complete automated suite with:
+
+```sh
+node tests/run-all.js
+```
 
 Open `tests/tests.html` in a browser. The suite checks local-view isolation,
 determinism, rotation invariance, edge blocking, pebble marking, role
