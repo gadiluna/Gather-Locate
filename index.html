@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <meta
+      name="description"
+      content="Interactive simulator for the Gather&amp;Locate black-hole-search algorithm."
+    >
+    <title>Gather&amp;Locate Simulator</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#simulation-stage">Skip to the simulation</a>
+
+    <div class="app-shell">
+      <header class="app-header">
+        <div>
+          <h1>Gather&amp;Locate Simulator</h1>
+        </div>
+      </header>
+
+      <main class="workspace" id="simulation-stage">
+        <aside class="panel configuration-panel" aria-labelledby="configuration-heading">
+          <div class="panel-heading">
+            <div>
+              <p class="panel-kicker">World</p>
+              <h2 id="configuration-heading">Configuration</h2>
+            </div>
+            <span class="panel-number" aria-hidden="true">01</span>
+          </div>
+
+          <form id="config-form" autocomplete="off">
+            <fieldset>
+              <legend>Ring</legend>
+              <div class="compact-fields compact-fields--two">
+                <label class="field" for="ring-size">
+                  <span>Nodes <i>n</i></span>
+                  <input id="ring-size" name="ringSize" type="number" min="4" max="60" value="12" inputmode="numeric">
+                </label>
+                <label class="field" for="black-hole">
+                  <span>Black hole</span>
+                  <input id="black-hole" name="blackHole" type="number" min="0" max="11" value="7" inputmode="numeric">
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>Starting nodes</legend>
+              <div class="compact-fields compact-fields--three">
+                <label class="field agent-field agent-field--0" for="agent-0-start">
+                  <span><b class="agent-dot" aria-hidden="true"></b>A0</span>
+                  <input id="agent-0-start" name="agent0Start" type="number" min="0" max="11" value="0" inputmode="numeric">
+                </label>
+                <label class="field agent-field agent-field--1" for="agent-1-start">
+                  <span><b class="agent-dot" aria-hidden="true"></b>A1</span>
+                  <input id="agent-1-start" name="agent1Start" type="number" min="0" max="11" value="3" inputmode="numeric">
+                </label>
+                <label class="field agent-field agent-field--2" for="agent-2-start">
+                  <span><b class="agent-dot" aria-hidden="true"></b>A2</span>
+                  <input id="agent-2-start" name="agent2Start" type="number" min="0" max="11" value="9" inputmode="numeric">
+                </label>
+              </div>
+              <p class="field-hint">Identifiers are visible; node numbers are not visible to agents.</p>
+            </fieldset>
+
+            <fieldset>
+              <legend>Edge scheduler</legend>
+              <label class="field" for="scheduler-mode">
+                <span>Schedule</span>
+                <select id="scheduler-mode" name="schedulerMode">
+                  <option value="manual">Manual edge</option>
+                  <option value="pattern">Manual missing pattern</option>
+                  <option value="click">Click ring edges</option>
+                  <option value="random">Seeded random</option>
+                  <option value="none">All edges present</option>
+                </select>
+              </label>
+
+              <div class="scheduler-fields">
+                <label class="field" for="manual-edge" id="manual-edge-field">
+                  <span>Missing edge in each round</span>
+                  <select id="manual-edge" name="manualEdge">
+                    <option value="none">None</option>
+                  </select>
+                </label>
+                <label class="field" for="random-seed" id="seed-field">
+                  <span>Random seed</span>
+                  <input id="random-seed" name="randomSeed" type="text" value="gl-2025" spellcheck="false">
+                </label>
+              </div>
+              <label class="field scheduler-pattern-field" for="missing-pattern" id="pattern-field" hidden>
+                <span>Missing-edge pattern</span>
+                <textarea
+                  id="missing-pattern"
+                  name="missingPattern"
+                  rows="5"
+                  spellcheck="false"
+                  placeholder="edge 1 absent from 5 to 12&#10;edge 3 absent from 20 to 40"
+                ></textarea>
+              </label>
+              <p class="field-hint" id="scheduler-hint">
+                The scheduler removes at most one ring edge in every round.
+              </p>
+            </fieldset>
+
+            <fieldset>
+              <legend>Display</legend>
+              <label class="switch-row" for="observer-truth">
+                <span>
+                  <strong>Observer truth</strong>
+                  <small>Reveal node labels and the black hole.</small>
+                </span>
+                <span class="switch">
+                  <input id="observer-truth" name="observerTruth" type="checkbox" checked>
+                  <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+                </span>
+              </label>
+
+              <label class="range-field" for="speed-range">
+                <span>
+                  <strong>Playback speed</strong>
+                  <output id="speed-label" for="speed-range">2 rounds/s</output>
+                </span>
+                <input id="speed-range" name="speed" type="range" min="1" max="10" value="2" step="1">
+              </label>
+            </fieldset>
+
+            <p class="configuration-state" id="configuration-state" aria-live="polite">
+              Current values are active.
+            </p>
+
+            <div class="control-cluster" aria-label="Simulation controls">
+              <button class="button button--primary button--wide" id="initialize-button" type="submit">
+                Initialize ring
+              </button>
+              <button class="button" id="step-button" type="button">
+                <span class="button-icon" aria-hidden="true">→</span>
+                Step
+              </button>
+              <button class="button" id="play-button" type="button" aria-pressed="false">
+                <span class="button-icon play-icon" aria-hidden="true">▶</span>
+                <span id="play-button-label">Play</span>
+              </button>
+              <button class="button button--quiet" id="next-event-button" type="button" title="Advance until a protocol event occurs">
+                Next event
+              </button>
+              <button class="button button--quiet" id="reset-button" type="reset">
+                Reset
+              </button>
+            </div>
+          </form>
+        </aside>
+
+        <section class="stage-column" aria-label="Ring execution">
+          <section class="status-strip" aria-label="Execution status" aria-live="polite">
+            <div class="metric metric--strong">
+              <span>Round</span>
+              <strong id="round-value">0</strong>
+            </div>
+            <div class="metric">
+              <span>Phase</span>
+              <strong id="phase-value">1</strong>
+            </div>
+            <div class="metric">
+              <span>Moves</span>
+              <strong id="moves-value">0</strong>
+            </div>
+            <div class="metric">
+              <span>Survivors</span>
+              <strong id="survivors-value">3</strong>
+            </div>
+            <div class="execution-result">
+              <span class="result-badge result-badge--running" id="result-badge">Ready</span>
+            </div>
+          </section>
+
+          <figure class="panel ring-panel">
+            <div class="ring-toolbar">
+              <div>
+                <p class="panel-kicker">Observer canvas</p>
+                <h2>Anonymous oriented ring</h2>
+              </div>
+              <div class="ring-legend" aria-label="Ring legend">
+                <span><i class="legend-agent legend-agent--0" aria-hidden="true"></i>Agent</span>
+                <span><i class="legend-pebble" aria-hidden="true"></i>Pebble</span>
+                <span><i class="legend-edge" aria-hidden="true"></i>Present edge</span>
+                <span><i class="legend-edge legend-edge--missing" aria-hidden="true"></i>Missing edge</span>
+              </div>
+            </div>
+
+            <div class="ring-canvas">
+              <svg
+                id="ring-svg"
+                class="ring-svg"
+                viewBox="0 0 760 640"
+                role="img"
+                aria-labelledby="ring-title ring-description"
+                preserveAspectRatio="xMidYMid meet"
+              >
+                <title id="ring-title">Current dynamic-ring configuration</title>
+                <desc id="ring-description">
+                  An observer visualization of the oriented ring, its agents, pebbles, black hole, and current missing edge.
+                </desc>
+                <defs>
+                  <marker id="clockwise-arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                    <path d="M 0 0 L 10 5 L 0 10 z" class="arrow-marker"></path>
+                  </marker>
+                  <filter id="token-shadow" x="-50%" y="-50%" width="200%" height="200%">
+                    <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-opacity=".2"></feDropShadow>
+                  </filter>
+                </defs>
+                <g id="edge-layer" class="edge-layer"></g>
+                <g id="orientation-layer" class="orientation-layer"></g>
+                <g id="node-layer" class="node-layer"></g>
+                <g id="pebble-layer" class="pebble-layer"></g>
+                <g id="agent-layer" class="agent-layer"></g>
+                <text id="ring-empty-state" class="ring-empty-state" x="380" y="320" text-anchor="middle">
+                  Reset the simulation to draw the ring
+                </text>
+              </svg>
+            </div>
+
+          </figure>
+        </section>
+
+        <aside class="panel inspector-panel" aria-labelledby="inspector-heading">
+          <div class="panel-heading">
+            <div>
+              <p class="panel-kicker">Per-agent trace</p>
+              <h2 id="inspector-heading">Local-state inspector</h2>
+            </div>
+            <span class="panel-number" aria-hidden="true">02</span>
+          </div>
+
+          <div class="agent-tabs" role="tablist" aria-label="Select an agent">
+            <button class="agent-tab agent-tab--0 is-selected" id="agent-tab-0" type="button" role="tab" aria-selected="true" aria-controls="agent-inspector" data-agent-id="0">
+              <span>A0</span><small id="agent-tab-state-0">PHASE1_CW</small>
+            </button>
+            <button class="agent-tab agent-tab--1" id="agent-tab-1" type="button" role="tab" aria-selected="false" aria-controls="agent-inspector" data-agent-id="1" tabindex="-1">
+              <span>A1</span><small id="agent-tab-state-1">PHASE1_CW</small>
+            </button>
+            <button class="agent-tab agent-tab--2" id="agent-tab-2" type="button" role="tab" aria-selected="false" aria-controls="agent-inspector" data-agent-id="2" tabindex="-1">
+              <span>A2</span><small id="agent-tab-state-2">PHASE1_CW</small>
+            </button>
+          </div>
+
+          <div class="table-scroll">
+            <table class="agent-table">
+              <caption class="sr-only">Current state of every agent</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Agent</th>
+                  <th scope="col">Mode</th>
+                  <th scope="col">Role</th>
+                  <th scope="col"><abbr title="Carried pebbles">Peb.</abbr></th>
+                </tr>
+              </thead>
+              <tbody id="agent-table-body">
+                <tr data-agent-id="0" aria-selected="true"><th scope="row"><span class="table-agent table-agent--0">A0</span></th><td>PHASE1_CW</td><td>—</td><td>1</td></tr>
+                <tr data-agent-id="1"><th scope="row"><span class="table-agent table-agent--1">A1</span></th><td>PHASE1_CW</td><td>—</td><td>1</td></tr>
+                <tr data-agent-id="2"><th scope="row"><span class="table-agent table-agent--2">A2</span></th><td>PHASE1_CW</td><td>—</td><td>1</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div id="agent-inspector" class="inspector-stack" role="tabpanel" aria-labelledby="agent-tab-0">
+            <section class="inspect-card inspect-card--local">
+              <div class="inspect-card-heading">
+                <div>
+                  <h3>Exact local view</h3>
+                  <span class="privacy-label">Anonymous input</span>
+                </div>
+                <span id="local-view-round" class="round-chip">round 0</span>
+              </div>
+              <p class="capability-note">
+                Contains incident ports, local pebbles, co-located IDs, finite messages, and the agent’s own last result—never a node number or observer truth.
+              </p>
+              <pre id="local-view-json" class="code-block" tabindex="0" aria-label="Selected agent local view">{
+  "ports": {
+    "clockwise": true,
+    "counterClockwise": true
+  },
+  "pebbleCount": 0,
+  "coLocatedIds": [0],
+  "messages": [],
+  "lastOwnResult": {
+    "kind": "INITIAL",
+    "direction": "STAY"
+  }
+}</pre>
+            </section>
+
+            <details class="inspect-card" open>
+              <summary>
+                <span>Private FSM memory</span>
+                <span class="disclosure-icon" aria-hidden="true"></span>
+              </summary>
+              <pre id="agent-memory-json" class="code-block code-block--compact" tabindex="0" aria-label="Selected agent private memory">{
+  "mode": "PHASE1_CW",
+  "stage": "READY",
+  "round": 0
+}</pre>
+            </details>
+
+            <details class="inspect-card" open>
+              <summary>
+                <span>Selected intent</span>
+                <span class="disclosure-icon" aria-hidden="true"></span>
+              </summary>
+              <pre id="agent-action-json" class="code-block code-block--compact" tabindex="0" aria-label="Selected agent action">{
+  "action": "STAY",
+  "pebbleOperation": "NONE"
+}</pre>
+            </details>
+          </div>
+        </aside>
+
+        <section class="panel log-panel" aria-labelledby="log-heading">
+          <div class="log-heading-row">
+            <div>
+              <p class="panel-kicker">Execution trace</p>
+              <h2 id="log-heading">Event log</h2>
+            </div>
+            <button class="text-button" id="clear-log-button" type="button">Clear visible log</button>
+          </div>
+          <ol id="event-log" class="event-log" aria-live="polite" aria-relevant="additions">
+            <li class="event event--system">
+              <span class="event-round">r0</span>
+              <span class="event-mark" aria-hidden="true"></span>
+              <p><strong>Simulator ready.</strong> Choose a schedule, then step or play the execution.</p>
+            </li>
+          </ol>
+        </section>
+      </main>
+
+    </div>
+
+    <div id="live-announcer" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
+
+    <script defer src="src/protocol.js"></script>
+    <script defer src="src/gl-agent.js"></script>
+    <script defer src="src/schedulers.js"></script>
+    <script defer src="src/kernel.js"></script>
+    <script defer src="src/scenarios.js"></script>
+    <script defer src="src/ui.js"></script>
+  </body>
+</html>

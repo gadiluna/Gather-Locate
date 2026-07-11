@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>GL simulator tests</title>
+    <style>
+      :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+      body { max-width: 920px; margin: 0 auto; padding: 2rem 1rem; }
+      h1 { margin-bottom: .35rem; }
+      #summary { font-weight: 700; }
+      ol { padding: 0; list-style: none; }
+      li { margin: .5rem 0; padding: .7rem .85rem; border: 1px solid color-mix(in srgb, currentColor 20%, transparent); border-radius: .55rem; }
+      .pass { border-left: .4rem solid #2d8a5f; }
+      .fail { border-left: .4rem solid #c4453d; }
+      pre { overflow: auto; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <h1>GL simulator tests</h1>
+    <p id="summary" aria-live="polite">Running…</p>
+    <ol id="results"></ol>
+
+    <script src="../src/protocol.js"></script>
+    <script src="../src/gl-agent.js"></script>
+    <script src="../src/schedulers.js"></script>
+    <script src="../src/kernel.js"></script>
+    <script src="tests.js"></script>
+  </body>
+</html>
