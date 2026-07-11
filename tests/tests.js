@@ -42,7 +42,11 @@
     for (let round = 0; round < limit; round += 1) {
       frame = simulation.step();
       if (onFrame) onFrame(frame);
-      assert(!frame.claims.some((claim) => claim.correct === false), "an incorrect termination occurred");
+      const incorrect = frame.claims.find((claim) => claim.correct === false);
+      assert(
+        !incorrect,
+        `an incorrect termination occurred for n=${frame.n}, h=${frame.blackHole}, round=${frame.round}: ${JSON.stringify(incorrect)}`,
+      );
       if (frame.claims.some((claim) => claim.correct === true)) return frame;
     }
     return frame;
@@ -200,31 +204,142 @@
     assert(frame.claims.every((claim) => claim.correct === true), "every claim must match observer truth");
   });
 
-  test("a valid scattered execution reaches three independent RT roles", () => {
+  test("a three-agent JointCW group persists through Phase 1 and becomes RT at the boundary", () => {
+    const n = 5;
     const simulation = new G.Simulation({
-      n: 5,
+      n,
       blackHole: 4,
       positions: [0, 1, 2],
-      scheduler: { type: "random", seed: 19, omissionProbability: 0.85 },
+      scheduler: { type: "manual", missingEdge: 3 },
     });
     let frame;
-    for (let round = 0; round < 20; round += 1) {
+    let sawThreeAgentJointCW = false;
+    for (let round = 1; round <= 6 * n; round += 1) {
       frame = simulation.step();
-      if (frame.agents.every((agent) => agent.memory.mode.startsWith("RT_"))) break;
+      assert(
+        !frame.agents.some((agent) => agent.memory.mode.startsWith("RT_")),
+        `CautiousPendulum started during Phase 1 in round ${round}`,
+      );
+      const joint = frame.agents.filter((agent) => agent.memory.mode.startsWith("JOINT_"));
+      if (joint.length === 3) {
+        sawThreeAgentJointCW = true;
+        equal(
+          joint.map((agent) => agent.memory.role).sort(),
+          [G.Role.AVANGUARD, G.Role.LEADER, G.Role.LEADER].sort(),
+          "three-agent JointCW must have one Avanguard and two Leaders",
+        );
+      }
     }
+    assert(sawThreeAgentJointCW, "the execution never formed a three-agent JointCW group");
+    assert(frame.round === 6 * n && frame.phase === 1, "the last Phase-1 frame must be round 6n");
+    assert(
+      frame.agents.every((agent) => agent.memory.mode.startsWith("JOINT_")),
+      "the co-located three-agent group must remain JointCW through round 6n",
+    );
+    assert(
+      new Set(frame.agents.map((agent) => agent.position)).size === 1,
+      "this boundary regression must reach three co-located JointCW agents",
+    );
+    frame = simulation.step();
+    assert(frame.round === 6 * n + 1 && frame.phase === 2, "CautiousPendulum must start exactly in round 6n+1");
+    assert(
+      frame.agents.every((agent) => agent.memory.mode.startsWith("RT_")),
+      "all three co-located agents must switch from JointCW to RT at the boundary",
+    );
     equal(
       frame.agents.map((agent) => agent.memory.role).sort(),
       [G.Role.AVANGUARD, G.Role.LEADER, G.Role.RETROGUARD].sort(),
-      "the three local machines must independently select the RT roles",
+      "the three local machines must select the RT roles in round 6n+1",
     );
+  });
+
+  test("a three-member JointCW completed return preserves the group and performs one final crossing", () => {
+    const n = 7;
+    const groupIds = [0, 1, 2];
+    const machines = groupIds.map((id) => new G.AgentMachine({
+      id,
+      n,
+      initialMemory: {
+        mode: id === 2 ? G.Mode.JOINT_AVANGUARD : G.Mode.JOINT_LEADER,
+        role: id === 2 ? G.Role.AVANGUARD : G.Role.LEADER,
+        stage: id === 2 ? G.Stage.RETURNED : G.Stage.WAITING,
+        jointPartnerId: id === 2 ? 0 : 2,
+        jointGroupIds: groupIds,
+        carriedPebbles: id === 2 ? 0 : 1,
+        ownPebbleOutstanding: id === 2,
+        expectReturn: id !== 2,
+      },
+    }));
+    const announcements = new Map(machines.map((machine) => {
+      const id = machine.snapshot().id;
+      return [id, machine.announce()];
+    }));
+    const viewFor = (id, pebbleCount) => G.makeLocalView({
+      ports: { clockwise: true, counterClockwise: true },
+      pebbleCount,
+      coLocatedIds: groupIds,
+      messages: groupIds.filter((peerId) => peerId !== id).map((peerId) => announcements.get(peerId)),
+      lastOwnResult: id === 2
+        ? { kind: G.OwnResultKind.MOVED, direction: G.Direction.COUNTER_CLOCKWISE }
+        : { kind: G.OwnResultKind.STAYED, direction: G.Direction.STAY },
+    });
+
+    const preparations = machines.map((machine) => machine.prepare(viewFor(machine.snapshot().id, 1)));
+    equal(
+      preparations.map((preparation) => preparation.pebbleOperation),
+      [G.PebbleOperation.NONE, G.PebbleOperation.NONE, G.PebbleOperation.TAKE_ALL],
+      "only the returning Avanguard may recover the cautious-step pebble",
+    );
+    const intents = machines.map((machine, index) => machine.decide(
+      viewFor(machine.snapshot().id, 0),
+      {
+        requested: preparations[index].pebbleOperation,
+        success: true,
+        count: index === 2 ? 1 : 0,
+        reason: "TEST",
+      },
+    ));
+    const memories = machines.map((machine) => machine.snapshot());
+
+    equal(
+      intents.map((intent) => intent.action),
+      [G.Action.MOVE_CW, G.Action.MOVE_CW, G.Action.MOVE_CW],
+      "both Leaders and the Avanguard must make the certified final crossing together",
+    );
+    equal(
+      memories.map((memory) => memory.mode),
+      [G.Mode.JOINT_LEADER, G.Mode.JOINT_LEADER, G.Mode.JOINT_AVANGUARD],
+      "a completed return must not convert the three-agent group to RT during Phase 1",
+    );
+    assert(memories.every((memory) => memory.stage === G.Stage.READY), "the final crossing must complete the cautious step");
+    memories.forEach((memory) => equal(memory.jointGroupIds, groupIds, "the three-member JointCW group changed"));
+    assert(memories[2].carriedPebbles === 1, "the returning Avanguard did not recover its pebble");
   });
 
   test("the failed-report threshold is checked on the following activation", () => {
     const n = 6;
+    const groupIds = [0, 1, 2];
+    const makeBoundaryMachine = (id) => new G.AgentMachine({
+      id,
+      n,
+      initialMemory: {
+        round: 6 * n + 1,
+        phase: 1,
+        mode: id === 2 ? G.Mode.JOINT_AVANGUARD : G.Mode.JOINT_LEADER,
+        role: id === 2 ? G.Role.AVANGUARD : G.Role.LEADER,
+        stage: G.Stage.READY,
+        jointPartnerId: id === 2 ? 0 : 2,
+        jointGroupIds: groupIds,
+      },
+    });
     const simulation = new G.Simulation({
       n,
       blackHole: n - 1,
-      positions: [0, 0, 0],
+      agents: [
+        { id: 0, position: 0, machine: makeBoundaryMachine(0) },
+        { id: 1, position: 0, machine: makeBoundaryMachine(1) },
+        { id: 2, position: 0, machine: makeBoundaryMachine(2) },
+      ],
       scheduler: { type: "manual", missingEdge: 0 },
     });
     let frame;
@@ -234,6 +349,56 @@
     assert(frame.claims.length === 1 && frame.claims[0].correct, "the next activation must terminate correctly");
   });
 
+  test("failed-report counts are backed by blocked clockwise movement intents", () => {
+    const cases = [
+      {
+        label: "RT Leader",
+        mode: G.Mode.RT_LEADER,
+        role: G.Role.LEADER,
+        stage: G.Stage.READY,
+        pebbleCount: 0,
+      },
+      {
+        label: "AggressiveLeader",
+        mode: G.Mode.BCP_AGGRESSIVE_LEADER,
+        role: G.Role.AGGRESSIVE_LEADER,
+        stage: G.Stage.AT_MARK,
+        pebbleCount: 1,
+      },
+    ];
+
+    for (const current of cases) {
+      const makeMachine = () => new G.AgentMachine({
+        id: 0,
+        n: 6,
+        initialMemory: {
+          phase: 2,
+          round: 50,
+          mode: current.mode,
+          role: current.role,
+          stage: current.stage,
+          departure: 1,
+          failedReport: 3,
+          reportActive: true,
+        },
+      });
+      const blocked = activate(makeMachine(), localView({
+        ports: { clockwise: false, counterClockwise: true },
+        pebbleCount: current.pebbleCount,
+      }));
+      assert(blocked.intent.action === G.Action.MOVE_CW,
+        `${current.label} counted an absent edge without attempting a clockwise traversal`);
+      assert(blocked.memory.failedReport === 4,
+        `${current.label} did not count its blocked clockwise attempt`);
+
+      const present = activate(makeMachine(), localView({ pebbleCount: current.pebbleCount }));
+      assert(present.intent.action === G.Action.STAY,
+        `${current.label} must stay when its clockwise edge is present and it is waiting`);
+      assert(present.memory.failedReport === 3,
+        `${current.label} counted a failed report without a blocked attempt`);
+    }
+  });
+
   test("CautiousPendulum handles either black-hole-incident edge missing forever", () => {
     let executions = 0;
     for (let n = 5; n <= 12; n += 1) {
@@ -241,10 +406,28 @@
         const origin = G.mod(blackHole + 1, n);
         const incidentEdges = [G.mod(blackHole - 1, n), blackHole];
         for (const missingEdge of incidentEdges) {
+          const makeMachine = (id, mode, role, stage) => new G.AgentMachine({
+            id,
+            n,
+            initialMemory: {
+              round: 6 * n + 1,
+              phase: 2,
+              mode,
+              role,
+              stage,
+              departure: 1,
+              reportActive: role === G.Role.LEADER,
+              retroTarget: -1,
+            },
+          });
           const simulation = new G.Simulation({
             n,
             blackHole,
-            positions: [origin, origin, origin],
+            agents: [
+              { id: 0, position: origin, machine: makeMachine(0, G.Mode.RT_LEADER, G.Role.LEADER, G.Stage.READY) },
+              { id: 1, position: origin, machine: makeMachine(1, G.Mode.RT_AVANGUARD, G.Role.AVANGUARD, G.Stage.READY) },
+              { id: 2, position: origin, machine: makeMachine(2, G.Mode.RT_RETROGUARD, G.Role.RETROGUARD, G.Stage.OUTBOUND) },
+            ],
             scheduler: { type: "manual", missingEdge },
           });
           let sawCautiousPendulum = false;
@@ -365,6 +548,43 @@
       "the reported schedule did not produce a correct termination");
   });
 
+  test("a singleton meeting a committed JointCW Leader cannot absorb or reassign the pair", () => {
+    const groupIds = [1, 2];
+    const leader = new G.AgentMachine({
+      id: 1,
+      n: 7,
+      initialMemory: {
+        mode: G.Mode.JOINT_LEADER,
+        role: G.Role.LEADER,
+        stage: G.Stage.WAITING,
+        jointPartnerId: 2,
+        jointGroupIds: groupIds,
+      },
+    });
+    const singleton = new G.AgentMachine({ id: 0, n: 7 });
+    const leaderMessage = leader.announce();
+    const singletonMessage = singleton.announce();
+    const leaderResult = activate(leader, localView({
+      ports: { clockwise: false, counterClockwise: true },
+      pebbleCount: 1,
+      coLocatedIds: [0, 1],
+      messages: [singletonMessage],
+    }));
+    const singletonResult = activate(singleton, localView({
+      ports: { clockwise: false, counterClockwise: true },
+      pebbleCount: 1,
+      coLocatedIds: [0, 1],
+      messages: [leaderMessage],
+    }));
+
+    assert(leaderResult.memory.mode === G.Mode.JOINT_LEADER, "the committed Leader was reassigned");
+    equal(leaderResult.memory.jointGroupIds, groupIds, "the singleton changed the committed pair membership");
+    assert(leaderResult.memory.jointPartnerId === 2, "the singleton replaced the committed Avanguard");
+    assert(singletonResult.memory.mode === G.Mode.PHASE1_WAIT, "the singleton must wait at the committed pair's pebble");
+    equal(singletonResult.memory.jointGroupIds, [], "the waiting singleton incorrectly joined the unfinished step");
+    assert(singletonResult.intent.action === G.Action.STAY, "the singleton moved while the pair's return was pending");
+  });
+
   test("a committed JointCW Leader ignores an unrelated completed return", () => {
     const machine = new G.AgentMachine({
       id: 1,
@@ -431,8 +651,8 @@
     assert(leader, "the two survivors did not start BackwardCP");
     assert(leader.memory.stage === G.Stage.MOVING, "the removed temporary pebble was mistaken for a permanent mark");
     assert(leader.memory.expectReturn === false, "the stale pebble armed a false missing-return test");
-    assert(!frame.pebbles.some((pebble) => pebble.status === "PLACED" && pebble.position === leader.position),
-      "the temporary pebble was not recovered before BackwardCP");
+    assert(frame.pebbles.filter((pebble) => pebble.status === "PLACED").length === 1,
+      "the temporary pebble was not recovered before BackwardCP moved in the return activation");
     frame = runUntilClaim(simulation, 69);
     assert(frame.claims.some((claim) => claim.correct === true), "the post-recovery BackwardCP execution did not terminate");
   });
@@ -620,10 +840,20 @@
     const returnPreparation = returner.prepare(returnerView);
     const postViewForWaiter = G.makeLocalView(Object.assign({}, waiterView, { pebbleCount: 0 }));
     const postViewForReturner = G.makeLocalView(Object.assign({}, returnerView, { pebbleCount: 0 }));
-    waiter.decide(postViewForWaiter, { requested: waiterPreparation.pebbleOperation, success: true, count: 0, reason: "TEST" });
-    returner.decide(postViewForReturner, { requested: returnPreparation.pebbleOperation, success: true, count: 1, reason: "TEST" });
+    const waiterIntent = waiter.decide(
+      postViewForWaiter,
+      { requested: waiterPreparation.pebbleOperation, success: true, count: 0, reason: "TEST" },
+    );
+    const returnerIntent = returner.decide(
+      postViewForReturner,
+      { requested: returnPreparation.pebbleOperation, success: true, count: 1, reason: "TEST" },
+    );
     assert(waiter.snapshot().mode === G.Mode.BCP_AGGRESSIVE_LEADER, "waiting agent must start BackwardCP");
     assert(returner.snapshot().mode === G.Mode.BCP_RETROGUARD, "returning agent must start BackwardCP");
+    assert(waiterIntent.action === G.Action.MOVE_CW,
+      "AggressiveLeader must start moving in the completed-return activation");
+    assert(returnerIntent.action === G.Action.MOVE_CCW,
+      "Retroguard must start its departure in the completed-return activation");
   });
 
   test("BackwardCP states never apply the separated timeout", () => {
@@ -735,7 +965,7 @@
     assert(frame.claims.some((claim) => claim.correct === true), "the post-Forward BackwardCP execution did not terminate");
   });
 
-  test("BackwardCP-to-RT preserves counters and defers movement until after pebble recovery", () => {
+  test("BackwardCP-to-RT preserves counters and moves in the completed-return activation", () => {
     const n = 9;
     const leader = new G.AgentMachine({
       id: 0,
@@ -760,13 +990,19 @@
       messages: [returnMessage],
       lastOwnResult: { kind: "STAYED", direction: "STAY" },
     });
-    const result = activate(leader, view);
-    assert(result.memory.mode === G.Mode.RT_LEADER, "AggressiveLeader must locally become Leader");
-    assert(result.memory.departure === 2 && result.memory.failedReport === 4, "departure information must be preserved");
-    assert(result.memory.ell === 3, "the first RT move must be deferred until the recovered pebble is absent");
-    const next = activate(leader, localView({ pebbleCount: 0 }));
-    assert(next.intent.action === G.Action.MOVE_CW, "the deferred certified crossing must occur next");
-    assert(next.memory.ell === 4, "ell must increment on the deferred safe final crossing");
+    const preparation = leader.prepare(view);
+    const postRecoveryView = G.makeLocalView(Object.assign({}, view, { pebbleCount: 0 }));
+    const intent = leader.decide(postRecoveryView, {
+      requested: preparation.pebbleOperation,
+      success: true,
+      count: 0,
+      reason: "TEST",
+    });
+    const memory = leader.snapshot();
+    assert(memory.mode === G.Mode.RT_LEADER, "AggressiveLeader must locally become Leader");
+    assert(memory.departure === 2 && memory.failedReport === 4, "departure information must be preserved");
+    assert(intent.action === G.Action.MOVE_CW, "the certified RT crossing must occur in the return activation");
+    assert(memory.ell === 4, "ell must increment on the same-round certified crossing");
   });
 
   test("adversarial one-edge schedulers preserve safety and bounded termination", () => {
@@ -813,7 +1049,12 @@
             },
           };
           simulation = new G.Simulation({ n, blackHole, positions, scheduler });
-          const frame = runUntilClaim(simulation, 6 * n + 40 * n * n);
+          let frame;
+          try {
+            frame = runUntilClaim(simulation, 6 * n + 40 * n * n);
+          } catch (error) {
+            throw new Error(`${family} scheduler failed for n=${n}, h=${blackHole}: ${error.message}`);
+          }
           assert(
             frame.claims.some((claim) => claim.correct === true),
             `${family} scheduler prevented termination for n=${n}, h=${blackHole}`,

@@ -39,6 +39,7 @@
       stage: Stage.READY,
       role: Role.NONE,
       jointPartnerId: null,
+      jointGroupIds: [],
       carriedPebbles: 1,
       ownPebbleOutstanding: false,
       expectReturn: false,
@@ -79,6 +80,7 @@
       stage: memory.stage,
       role: memory.role,
       event,
+      jointGroupIds: memory.jointGroupIds.slice(),
     });
   }
 
@@ -98,7 +100,7 @@
       dropRequired: false,
       departureThisRound: false,
       cautiousDepartureThisRound: false,
-      deferModeAction: false,
+      modeActionAfterPebble: false,
     };
   }
 
@@ -120,6 +122,7 @@
     plan.memory.stage = Stage.WAITING;
     plan.memory.role = Role.NONE;
     plan.memory.jointPartnerId = null;
+    plan.memory.jointGroupIds = [];
     plan.memory.terminalClaim = claim;
     setAction(plan, Action.TERMINATE, reason, claim);
   }
@@ -135,12 +138,34 @@
     return view.messages.find((message) => accepted.has(message.mode));
   }
 
-  function jointPartnerMessage(memory, view, expectedMode) {
-    if (!Number.isInteger(memory.jointPartnerId)) return null;
-    return view.messages.find((message) =>
-      message.id === memory.jointPartnerId
-      && (!expectedMode || message.mode === expectedMode),
-    ) || null;
+  function sameIds(left, right) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
+      return false;
+    }
+    return left.every((id, index) => id === right[index]);
+  }
+
+  function sameJointGroup(memory, message) {
+    return sameIds(memory.jointGroupIds, message.jointGroupIds);
+  }
+
+  function jointGroupReady(memory, view) {
+    const groupIds = memory.jointGroupIds;
+    if (!Array.isArray(groupIds) || groupIds.length < 2 || groupIds.length > 3) {
+      return false;
+    }
+    const avanguardId = groupIds[groupIds.length - 1];
+    return groupIds.every((id) => {
+      if (id === memory.id) {
+        const expectedMode = id === avanguardId ? Mode.JOINT_AVANGUARD : Mode.JOINT_LEADER;
+        return memory.mode === expectedMode && memory.stage === Stage.READY;
+      }
+      const message = view.messages.find((candidate) => candidate.id === id);
+      if (!message || !sameJointGroup(memory, message) || message.stage !== Stage.READY) {
+        return false;
+      }
+      return message.mode === (id === avanguardId ? Mode.JOINT_AVANGUARD : Mode.JOINT_LEADER);
+    });
   }
 
   function hasCommittedJointStep(memory) {
@@ -156,16 +181,25 @@
   }
 
   function startsJointStepNow(memory, view) {
-    if (!view.ports.clockwise || memory.stage !== Stage.READY) return false;
-    if (memory.mode === Mode.JOINT_LEADER) {
-      const partner = jointPartnerMessage(memory, view, Mode.JOINT_AVANGUARD);
-      return Boolean(partner && partner.stage === Stage.READY);
+    return view.ports.clockwise
+      && memory.stage === Stage.READY
+      && (memory.mode === Mode.JOINT_LEADER || memory.mode === Mode.JOINT_AVANGUARD)
+      && jointGroupReady(memory, view);
+  }
+
+  function isAvailableForPhase1Group(state) {
+    return (state.mode === Mode.PHASE1_CW && state.stage === Stage.READY)
+      || ((state.mode === Mode.JOINT_LEADER || state.mode === Mode.JOINT_AVANGUARD)
+        && state.stage === Stage.READY);
+  }
+
+  function availablePhase1Ids(memory, view) {
+    const ids = [];
+    if (isAvailableForPhase1Group(memory)) ids.push(memory.id);
+    for (const message of view.messages) {
+      if (isAvailableForPhase1Group(message)) ids.push(message.id);
     }
-    if (memory.mode === Mode.JOINT_AVANGUARD) {
-      const partner = jointPartnerMessage(memory, view, Mode.JOINT_LEADER);
-      return Boolean(partner && partner.stage === Stage.READY);
-    }
-    return false;
+    return [...new Set(ids)].sort((a, b) => a - b);
   }
 
   function hasReturn(view) {
@@ -181,17 +215,22 @@
   }
 
   function setJointRole(memory, ids, stage) {
-    const sorted = ids.slice().sort((a, b) => a - b);
-    if (sorted.length !== 2) throw new Error("JointCW requires exactly two local agents");
-    if (memory.id === sorted[0]) {
-      memory.mode = Mode.JOINT_LEADER;
-      memory.role = Role.LEADER;
-    } else {
+    const sorted = [...new Set(ids)].sort((a, b) => a - b);
+    if (sorted.length < 2 || sorted.length > 3) {
+      throw new Error("JointCW requires two or three local agents");
+    }
+    const avanguardId = sorted[sorted.length - 1];
+    if (memory.id === avanguardId) {
       memory.mode = Mode.JOINT_AVANGUARD;
       memory.role = Role.AVANGUARD;
+      memory.jointPartnerId = sorted[0];
+    } else {
+      memory.mode = Mode.JOINT_LEADER;
+      memory.role = Role.LEADER;
+      memory.jointPartnerId = avanguardId;
     }
     memory.stage = stage || Stage.READY;
-    memory.jointPartnerId = sorted[0] === memory.id ? sorted[1] : sorted[0];
+    memory.jointGroupIds = sorted;
     memory.expectReturn = false;
     memory.ownPebbleOutstanding = false;
   }
@@ -201,6 +240,7 @@
     const rank = sorted.indexOf(memory.id);
     memory.expectReturn = false;
     memory.jointPartnerId = null;
+    memory.jointGroupIds = [];
     memory.ownPebbleOutstanding = false;
     memory.ell = 0;
     memory.failedReport = 0;
@@ -227,6 +267,7 @@
     const sorted = ids.slice().sort((a, b) => a - b);
     memory.expectReturn = false;
     memory.jointPartnerId = null;
+    memory.jointGroupIds = [];
     memory.ownPebbleOutstanding = false;
     memory.ell = 0;
     memory.failedReport = 0;
@@ -252,6 +293,7 @@
     memory.stage = Stage.MOVING;
     memory.expectReturn = false;
     memory.jointPartnerId = null;
+    memory.jointGroupIds = [];
     memory.reportActive = false;
     memory.ownPebbleOutstanding = false;
   }
@@ -290,6 +332,7 @@
     }
     memory.expectReturn = false;
     memory.jointPartnerId = null;
+    memory.jointGroupIds = [];
     memory.ownPebbleOutstanding = false;
   }
 
@@ -307,13 +350,21 @@
       view.messages.filter((message) => message.event === PROBE_EVENT).map((message) => message.id),
     );
     if (selfIsProbe) pendingProbeIds.add(memory.id);
-    const returnedJointAvanguard = sourceModes.has(Mode.JOINT_AVANGUARD);
+    const returnedJointGroups = returnMessages
+      .filter((message) => message.mode === Mode.JOINT_AVANGUARD)
+      .map((message) => message.jointGroupIds);
+    if (selfReturned && memory.mode === Mode.JOINT_AVANGUARD) {
+      returnedJointGroups.push(memory.jointGroupIds);
+    }
+    const belongsToReturnedJointGroup = (message) => returnedJointGroups.some((groupIds) =>
+      groupIds.includes(message.id) && sameIds(groupIds, message.jointGroupIds),
+    );
     const committedPeerIds = new Set(
       view.messages
         .filter((message) =>
           message.event !== RETURN_EVENT
           && hasCommittedJointStep(message)
-          && !(returnedJointAvanguard && message.mode === Mode.JOINT_LEADER),
+          && !(message.mode === Mode.JOINT_LEADER && belongsToReturnedJointGroup(message)),
         )
         .map((message) => message.id),
     );
@@ -322,8 +373,8 @@
     const ownJointReturn = (
       memory.mode === Mode.JOINT_LEADER
       && returnMessages.some((message) =>
-        message.id === memory.jointPartnerId
-        && message.mode === Mode.JOINT_AVANGUARD,
+        message.mode === Mode.JOINT_AVANGUARD
+        && sameJointGroup(memory, message),
       )
     ) || (memory.mode === Mode.JOINT_AVANGUARD && selfReturned);
 
@@ -331,7 +382,6 @@
       if (memory.mode === Mode.JOINT_LEADER && memory.expectReturn) {
         const claim = claimClockwiseNeighbour(memory, "expected JointCW Avanguard return did not occur");
         terminate(plan, claim, "JointCW Leader ignores an unrelated return and detects its missing Avanguard");
-        plan.deferModeAction = true;
       } else {
         setAction(plan, Action.STAY, "committed JointCW step ignores an unrelated completed return");
       }
@@ -365,26 +415,15 @@
       }
 
       const completionGroupIds = returnGroupIds.filter((id) => !pendingProbeIds.has(id));
-      if (completionGroupIds.length >= 3) {
-        setStandardRTRole(memory, completionGroupIds);
-        plan.departureThisRound = memory.role === Role.LEADER;
-        setAction(plan, Action.STAY, "the completed-return group starts CautiousPendulum");
-      } else if (completionGroupIds.length === 2) {
-        if (
-          (memory.mode === Mode.JOINT_LEADER || memory.mode === Mode.JOINT_AVANGUARD)
-          && completionGroupIds.includes(memory.jointPartnerId)
-        ) {
-          memory.stage = Stage.ADVANCE;
-          memory.expectReturn = false;
-        } else {
-          setJointRole(memory, completionGroupIds, Stage.ADVANCE);
-        }
+      if (completionGroupIds.length >= 2) {
+        setJointRole(memory, completionGroupIds, Stage.ADVANCE);
         setAction(plan, Action.STAY, "the completed-return group finishes the certified crossing together");
       } else {
         memory.mode = Mode.PHASE1_CW;
         memory.role = Role.NONE;
         memory.stage = Stage.FINAL_CROSSING;
         memory.jointPartnerId = null;
+        memory.jointGroupIds = [];
         setAction(plan, Action.STAY, "finish this cautious step independently of the unrelated probe");
       }
       return;
@@ -399,6 +438,7 @@
         memory.stage = Stage.PROBE;
         memory.role = Role.NONE;
         memory.jointPartnerId = null;
+        memory.jointGroupIds = [];
       }
       setAction(plan, Action.STAY, "a pending cautious return has priority over this meeting");
       return;
@@ -413,37 +453,30 @@
     }
 
     if (sourceModes.has(Mode.JOINT_AVANGUARD) && !isPhase2Round(memory)) {
+      const requiredPartners = memory.jointGroupIds.length > 1
+        ? memory.jointGroupIds.filter((id) => id !== memory.id)
+        : [memory.jointPartnerId].filter(Number.isInteger);
       const orphanedSelf = selfReturned
         && memory.mode === Mode.JOINT_AVANGUARD
-        && !returnGroupIds.includes(memory.jointPartnerId);
+        && requiredPartners.some((id) => !returnGroupIds.includes(id));
       if (orphanedSelf) {
         memory.mode = Mode.PHASE1_CW;
         memory.role = Role.NONE;
         memory.stage = Stage.FINAL_CROSSING;
         memory.jointPartnerId = null;
+        memory.jointGroupIds = [];
         memory.expectReturn = false;
         memory.ownPebbleOutstanding = false;
         setAction(plan, Action.STAY, "orphaned JointCW Avanguard completes the certified crossing alone");
-      } else if (returnGroupIds.length >= 3) {
-        setStandardRTRole(memory, returnGroupIds);
-        plan.departureThisRound = memory.role === Role.LEADER;
-        setAction(plan, Action.STAY, "three agents met after a return and start CautiousPendulum");
-      } else if (returnGroupIds.length === 2) {
-        if (
-          (memory.mode === Mode.JOINT_LEADER || memory.mode === Mode.JOINT_AVANGUARD)
-          && returnGroupIds.includes(memory.jointPartnerId)
-        ) {
-          memory.stage = Stage.ADVANCE;
-          memory.expectReturn = false;
-        } else {
-          setJointRole(memory, returnGroupIds, Stage.ADVANCE);
-        }
-        setAction(plan, Action.STAY, "JointCW return completed; both perform the final crossing");
+      } else if (returnGroupIds.length >= 2) {
+        setJointRole(memory, returnGroupIds, Stage.ADVANCE);
+        setAction(plan, Action.STAY, "JointCW return completed; the group performs the final crossing");
       } else {
         memory.mode = Mode.PHASE1_CW;
         memory.role = Role.NONE;
         memory.stage = Stage.FINAL_CROSSING;
         memory.jointPartnerId = null;
+        memory.jointGroupIds = [];
         memory.expectReturn = false;
         memory.ownPebbleOutstanding = false;
         setAction(plan, Action.STAY, "single returning agent completes the certified crossing alone");
@@ -453,10 +486,9 @@
 
     if (isPhase2Round(memory) || sourceModes.has(Mode.PHASE2_RETURN)) {
       memory.phase = 2;
-      // Pebble recovery is resolved after prepare(). Defer the first action
-      // of the newly selected Phase-2 procedure so that it is planned from
-      // the next activation's post-recovery pebble count, not this stale view.
-      plan.deferModeAction = true;
+      // Select the new procedure's action after simultaneous pebble recovery,
+      // using decide()'s post-recovery view but still in this activation.
+      plan.modeActionAfterPebble = true;
       const bcpPresent = memory.mode === Mode.BCP_AGGRESSIVE_LEADER
         || memory.mode === Mode.BCP_RETROGUARD
         || Boolean(peerByMode(view, [Mode.BCP_AGGRESSIVE_LEADER, Mode.BCP_RETROGUARD, Mode.RT_LEADER]));
@@ -478,18 +510,15 @@
       return;
     }
 
-    if (returnGroupIds.length >= 3) {
-      setStandardRTRole(memory, returnGroupIds);
-      plan.departureThisRound = memory.role === Role.LEADER;
-      setAction(plan, Action.STAY, "three agents met after a cautious return and start CautiousPendulum");
-    } else if (returnGroupIds.length === 2) {
+    if (returnGroupIds.length >= 2) {
       setJointRole(memory, returnGroupIds, Stage.ADVANCE);
-      setAction(plan, Action.STAY, "two agents met after a cautious return and start JointCW");
+      setAction(plan, Action.STAY, "co-located agents form JointCW after the cautious return");
     } else {
       memory.mode = Mode.PHASE1_CW;
       memory.role = Role.NONE;
       memory.stage = Stage.FINAL_CROSSING;
       memory.jointPartnerId = null;
+      memory.jointGroupIds = [];
       setAction(plan, Action.STAY, "cautious return completed; prepare the final crossing");
     }
   }
@@ -528,11 +557,13 @@
       memory.role = Role.NONE;
       memory.stage = Stage.PROBE;
       memory.jointPartnerId = null;
+      memory.jointGroupIds = [];
     } else if (view.pebbleCount > 0 || memory.mode === Mode.PHASE1_WAIT) {
       memory.mode = Mode.PHASE2_WAIT;
       memory.role = Role.NONE;
       memory.stage = Stage.WAITING;
       memory.jointPartnerId = null;
+      memory.jointGroupIds = [];
     } else {
       setForward(memory);
     }
@@ -566,22 +597,24 @@
       && memory.reportActive
       && !plan.departureThisRound
       && !view.ports.clockwise
+      && plan.intent.action === Action.MOVE_CW
     ) {
       memory.failedReport += 1;
     }
   }
 
+  function shouldMakeFailedReportAttempt(plan, view) {
+    return plan.memory.reportActive
+      && !plan.departureThisRound
+      && !view.ports.clockwise;
+  }
+
   function startPhase1Meeting(plan, view) {
     const memory = plan.memory;
-    const ids = allIds(memory, view);
-    if (ids.length >= 3) {
-      setStandardRTRole(memory, ids);
-      plan.departureThisRound = memory.role === Role.LEADER;
-      return true;
-    }
-    if (ids.length === 2) {
+    const ids = availablePhase1Ids(memory, view);
+    if (ids.length >= 2) {
       setJointRole(memory, ids, Stage.READY);
-      if (memory.role === Role.LEADER && view.ports.clockwise) {
+      if (view.ports.clockwise) {
         plan.cautiousDepartureThisRound = true;
       }
       return true;
@@ -656,14 +689,17 @@
         } else if (memory.stage === Stage.PROBE) {
           if (view.ports.counterClockwise) memory.stage = Stage.RETURNED;
           setAction(plan, Action.MOVE_CCW, "JointCW Avanguard returns to the Leader");
-        } else if (view.ports.clockwise) {
+        } else if (
+          view.ports.clockwise
+          && (plan.cautiousDepartureThisRound || jointGroupReady(memory, view))
+        ) {
           requestPebble(plan, PebbleOperation.DROP_ONE, 20, "JointCW Avanguard marks the safe endpoint");
           plan.dropRequired = true;
           memory.ownPebbleOutstanding = true;
           memory.stage = Stage.PROBE;
           setAction(plan, Action.MOVE_CW, "JointCW Avanguard probes clockwise");
         } else {
-          setAction(plan, Action.STAY, "JointCW waits for the clockwise edge");
+          setAction(plan, Action.STAY, "JointCW waits for every group member and the clockwise edge");
         }
         break;
 
@@ -672,11 +708,10 @@
           if (view.ports.clockwise) memory.stage = Stage.READY;
           setAction(plan, view.ports.clockwise ? Action.MOVE_CW : Action.STAY, "JointCW Leader makes the final crossing");
         } else {
-          const avanguard = jointPartnerMessage(memory, view, Mode.JOINT_AVANGUARD);
           if (
             memory.stage === Stage.READY
             && view.ports.clockwise
-            && ((avanguard && avanguard.stage === Stage.READY) || plan.cautiousDepartureThisRound)
+            && (jointGroupReady(memory, view) || plan.cautiousDepartureThisRound)
           ) {
             memory.stage = Stage.WAITING;
           } else if (memory.stage === Stage.WAITING && view.ports.clockwise) {
@@ -708,7 +743,13 @@
             memory.stage = Stage.READY;
             memory.ell += 1;
           }
-          setAction(plan, view.ports.clockwise ? Action.MOVE_CW : Action.STAY, "RT Leader moves to the certified-safe node");
+          setAction(
+            plan,
+            Action.MOVE_CW,
+            view.ports.clockwise
+              ? "RT Leader moves to the certified-safe node"
+              : "RT Leader attempts the blocked certified-safe crossing",
+          );
         } else {
           const avanguard = peerByMode(view, Mode.RT_AVANGUARD);
           if (
@@ -720,7 +761,14 @@
           } else if (memory.stage === Stage.WAITING && view.ports.clockwise) {
             memory.expectReturn = true;
           }
-          setAction(plan, Action.STAY, "RT Leader waits for the Avanguard and monitors the Retroguard");
+          const blockedAttempt = shouldMakeFailedReportAttempt(plan, view);
+          setAction(
+            plan,
+            blockedAttempt ? Action.MOVE_CW : Action.STAY,
+            blockedAttempt
+              ? "RT Leader makes a blocked clockwise attempt while monitoring the Retroguard"
+              : "RT Leader waits for the Avanguard and monitors the Retroguard",
+          );
         }
         break;
       }
@@ -765,13 +813,20 @@
         if (view.pebbleCount > 0 || memory.stage === Stage.AT_MARK) {
           memory.stage = Stage.AT_MARK;
           if (view.ports.clockwise) memory.expectReturn = true;
-          setAction(plan, Action.STAY, "AggressiveLeader waits at the first pebble");
+          const blockedAttempt = shouldMakeFailedReportAttempt(plan, view);
+          setAction(
+            plan,
+            blockedAttempt ? Action.MOVE_CW : Action.STAY,
+            blockedAttempt
+              ? "AggressiveLeader makes a blocked clockwise attempt while waiting at the first pebble"
+              : "AggressiveLeader waits at the first pebble",
+          );
         } else if (view.ports.clockwise) {
           memory.ell += 1;
           memory.stage = Stage.MOVING;
           setAction(plan, Action.MOVE_CW, "AggressiveLeader moves clockwise without a cautious step");
         } else {
-          setAction(plan, Action.STAY, "AggressiveLeader waits for its clockwise edge");
+          setAction(plan, Action.MOVE_CW, "AggressiveLeader makes a blocked clockwise movement attempt");
         }
         break;
 
@@ -819,9 +874,12 @@
     // termination, role-change, timeout, and movement rule.
     if (selfReturned || peerReturned) {
       handleCompletedReturn(plan, view);
+      if (plan.memory.mode === Mode.TERMINATED) return plan;
       if (handleLeaderRetroguard(plan, view)) return plan;
-      if (!plan.deferModeAction) planModeAction(plan, view);
-      finishLeaderCounter(plan, view);
+      if (!plan.modeActionAfterPebble) {
+        planModeAction(plan, view);
+        finishLeaderCounter(plan, view);
+      }
       return plan;
     }
 
@@ -854,27 +912,28 @@
       memory.stage = Stage.PROBE;
       memory.role = Role.NONE;
       memory.jointPartnerId = null;
+      memory.jointGroupIds = [];
     }
 
     if (memory.phase === 1) {
-      const phase1Ids = allIds(memory, view);
       const pendingProbeHere = signalFor(memory).event === PROBE_EVENT
         || view.messages.some((message) => message.event === PROBE_EVENT);
-      if (phase1Ids.length >= 3 && view.pebbleCount === 0 && !pendingProbeHere) {
-        setStandardRTRole(memory, phase1Ids);
-        plan.departureThisRound = memory.role === Role.LEADER;
-      }
-      const phase1Free = memory.mode === Mode.PHASE1_CW
+      const phase1AtMark = memory.mode === Mode.PHASE1_CW
         && (memory.stage === Stage.READY || memory.stage === Stage.FINAL_CROSSING);
       const jointAtMark = (
         memory.mode === Mode.JOINT_LEADER || memory.mode === Mode.JOINT_AVANGUARD
       ) && memory.stage === Stage.READY;
-      if ((phase1Free || jointAtMark) && view.pebbleCount > 0 && !memory.ownPebbleOutstanding) {
+      if ((phase1AtMark || jointAtMark) && view.pebbleCount > 0 && !memory.ownPebbleOutstanding) {
         memory.mode = Mode.PHASE1_WAIT;
         memory.stage = Stage.WAITING;
         memory.role = Role.NONE;
         memory.jointPartnerId = null;
-      } else if (phase1Free && !pendingProbeHere && allIds(memory, view).length >= 2) {
+        memory.jointGroupIds = [];
+      } else if (
+        isAvailableForPhase1Group(memory)
+        && !pendingProbeHere
+        && availablePhase1Ids(memory, view).length >= 2
+      ) {
         startPhase1Meeting(plan, view);
       }
     }
@@ -971,6 +1030,16 @@
           memory.carriedPebbles += result.count;
           memory.ownPebbleOutstanding = false;
         }
+      }
+
+      if (pending.plan.modeActionAfterPebble && memory.mode !== Mode.TERMINATED) {
+        const actionPlan = defaultPlan(memory, "select the post-recovery Phase-2 action");
+        actionPlan.departureThisRound = pending.plan.departureThisRound;
+        actionPlan.cautiousDepartureThisRound = pending.plan.cautiousDepartureThisRound;
+        planModeAction(actionPlan, postPebbleView);
+        finishLeaderCounter(actionPlan, postPebbleView);
+        memory = actionPlan.memory;
+        intent = actionPlan.intent;
       }
 
       memory.round = pending.before.round + 1;

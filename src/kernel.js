@@ -39,6 +39,9 @@
       stage: String(message.stage || "UNKNOWN"),
       role: String(message.role || "NONE"),
       event: String(message.event || "NONE"),
+      jointGroupIds: Array.isArray(message.jointGroupIds)
+        ? message.jointGroupIds.map(Number)
+        : [],
     };
   }
 

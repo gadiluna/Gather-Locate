@@ -70,7 +70,10 @@ function checkFrame(frame, label) {
 
   const cautiousPendulumStarted = frame.agents.some((agent) =>
     agent.memory && agent.memory.mode.startsWith("RT_"));
-  if (frame.round <= 6 * frame.n && !cautiousPendulumStarted) {
+  const activePhase1 = frame.agents.some((agent) =>
+    agent.status === "ACTIVE" && agent.memory && agent.memory.phase === 1);
+  if (frame.round <= 6 * frame.n && activePhase1) {
+    assert(!cautiousPendulumStarted, `${label}: CautiousPendulum started during Phase 1`);
     const destroyed = frame.agents.filter((agent) => agent.status === "DESTROYED");
     assert(destroyed.length <= 1, `${label}: more than one agent entered the black hole in Phase 1`);
     if (destroyed.length === 1) {
@@ -107,10 +110,6 @@ function checkFrame(frame, label) {
 function assertPhase1Boundary(frame, label) {
   if (frame.round !== 6 * frame.n) return;
   if (frame.claims.some((claim) => claim.correct === true)) return;
-  if (frame.agents.some((agent) =>
-    agent.status === "ACTIVE" && agent.memory.mode.startsWith("RT_"),
-  )) return;
-
   const survivors = frame.agents.filter((agent) => agent.status === "ACTIVE");
   const occupied = new Set(survivors.map((agent) => agent.position));
   if (occupied.size === 1) return;
@@ -220,10 +219,24 @@ test("alternating the two black-hole incident edges exercises Pendulum without a
       const start = G.mod(blackHole + 1, n);
       const script = [G.mod(blackHole - 1, n), blackHole];
       let sawRT = false;
+      const groupIds = [0, 1, 2];
+      const makeBoundaryMachine = (id) => new G.AgentMachine({
+        id,
+        n,
+        initialMemory: {
+          round: 6 * n + 1,
+          phase: 1,
+          mode: id === 2 ? G.Mode.JOINT_AVANGUARD : G.Mode.JOINT_LEADER,
+          role: id === 2 ? G.Role.AVANGUARD : G.Role.LEADER,
+          stage: G.Stage.READY,
+          jointPartnerId: id === 2 ? 0 : 2,
+          jointGroupIds: groupIds,
+        },
+      });
       runToCorrectClaim({
         n,
         blackHole,
-        positions: [start, start, start],
+        agents: [0, 1, 2].map((id) => ({ id, position: start, machine: makeBoundaryMachine(id) })),
         scheduler: { type: "scripted", script, repeat: true },
       }, 6 * n + 40 * n * n, `alternating incident edges n=${n}, h=${blackHole}`, (frame) => {
         sawRT ||= frame.agents.some((agent) =>
