@@ -81,6 +81,9 @@ class FakeElement {
 
 const root = path.resolve(__dirname, "..");
 const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
+if (!/<form\s+id="config-form"[^>]*\bnovalidate\b/.test(html)) {
+  throw new Error("The configuration form must route invalid values through the visible simulator error");
+}
 const elements = new Map();
 for (const match of html.matchAll(/\sid="([^"]+)"/g)) {
   elements.set(match[1], new FakeElement("div", match[1]));
@@ -137,6 +140,34 @@ require(path.join(root, "src/gl-agent.js"));
 require(path.join(root, "src/schedulers.js"));
 require(path.join(root, "src/kernel.js"));
 require(path.join(root, "src/ui.js"));
+
+// Shrinking the ring used to clamp A2 onto the black hole, making the
+// Initialize ring button appear inert. Bounds normalization must preserve a
+// valid configuration, and submitting the form must activate it at round 0.
+const ringSize = elements.get("ring-size");
+ringSize.value = "8";
+ringSize.dispatch("input");
+const resizedBlackHole = Number(elements.get("black-hole").value);
+const resizedStarts = [0, 1, 2].map((id) => Number(elements.get(`agent-${id}-start`).value));
+if (new Set(resizedStarts).size !== 3 || resizedStarts.includes(resizedBlackHole)) {
+  throw new Error("Shrinking the ring produced an invalid starting configuration");
+}
+elements.get("config-form").dispatch("submit");
+if (elements.get("configuration-state").textContent !== "Current values are active.") {
+  throw new Error("Initialize ring did not apply the resized configuration");
+}
+if (elements.get("round-value").textContent !== "0") {
+  throw new Error("Initialize ring did not restart the execution at round 0");
+}
+
+// Restore the default world for the remaining interaction tests.
+ringSize.value = "12";
+ringSize.dispatch("input");
+elements.get("black-hole").value = "7";
+elements.get("agent-0-start").value = "0";
+elements.get("agent-1-start").value = "3";
+elements.get("agent-2-start").value = "9";
+elements.get("config-form").dispatch("submit");
 
 const schedulerMode = elements.get("scheduler-mode");
 schedulerMode.value = "pattern";
