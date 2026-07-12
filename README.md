@@ -34,8 +34,8 @@ CautiousPendulum (`RT`) never starts before the phase boundary. With
 `T = 4n^2`, Phase 2 consists exactly of rounds `6n+1,...,6n+T`; it dispatches
 the Phase-1 boundary configuration to `RT` or `BackwardCP` and gives a pending
 cautious return `T` rounds to complete. Phase 3 begins in round `6n+T+1` and
-finishes every unresolved execution. `Forward` is a role, never a mode or
-state, and it may be assigned only in Phase 3.
+finishes every unresolved execution. `Forward` is a procedure, not a role or
+state. It uses one agent in the role `Scout` and starts only in Phase 3.
 
 ## Controls
 
