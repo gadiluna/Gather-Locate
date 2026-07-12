@@ -73,7 +73,11 @@
   }
 
   function updateNumericBounds(normalizeStarts = false) {
-    const n = Math.max(4, Math.min(60, Number(byId("ring-size").value) || 4));
+    const configuredN = Number(byId("ring-size").value);
+    const activeN = simulation && simulation.observerFrame().n;
+    const n = Number.isInteger(configuredN) && configuredN >= 4 && configuredN <= 60
+      ? configuredN
+      : activeN || 4;
     const boundedIds = ["black-hole", "agent-0-start", "agent-1-start", "agent-2-start"];
     for (const id of boundedIds) {
       const input = byId(id);
@@ -136,6 +140,7 @@
       updateSchedulerVisibility();
       simulation = new GLSim.Simulation(readConfiguration());
       visibleLogStart = 0;
+      updateSpeedLabel();
       clearConfigurationPending();
       render(simulation.observerFrame());
       return true;
@@ -185,6 +190,7 @@
 
   function protocolSignature(frame) {
     return JSON.stringify({
+      phase: frame.phase,
       agents: frame.agents.map((agent) => ({
         id: agent.id,
         status: agent.status,
@@ -204,10 +210,13 @@
   function runToNextEvent() {
     if ((!simulation || configurationPending) && !resetSimulation()) return;
     pause();
-    const start = protocolSignature(simulation.observerFrame());
+    const initialFrame = simulation.observerFrame();
+    const start = protocolSignature(initialFrame);
+    const limit = 4 * initialFrame.n * initialFrame.n + 6 * initialFrame.n + 10;
+    let frame = initialFrame;
     try {
-      for (let count = 0; count < 5000; count += 1) {
-        const frame = simulation.step();
+      for (let count = 0; count < limit; count += 1) {
+        frame = simulation.step();
         if (
           protocolSignature(frame) !== start
           || !frame.agents.some((agent) => agent.status === "ACTIVE")
@@ -220,12 +229,17 @@
       showError(error);
       return;
     }
-    showError(new Error("No protocol event occurred within 5,000 rounds."));
+    render(frame);
+    showError(new Error(`No protocol event occurred within ${limit.toLocaleString()} rounds.`));
   }
 
   function playDelay() {
     const speed = Math.max(1, Number(byId("speed-range").value) || 1);
     return Math.max(55, Math.round(1000 / speed));
+  }
+
+  function updateSpeedLabel() {
+    byId("speed-label").textContent = `${byId("speed-range").value} rounds/s`;
   }
 
   function playTick() {
@@ -583,7 +597,7 @@
     byId("step-button").addEventListener("click", stepOnce);
     byId("next-event-button").addEventListener("click", runToNextEvent);
     byId("play-button").addEventListener("click", () => (playing ? pause() : play()));
-    byId("reset-button").addEventListener("click", () => root.setTimeout(resetSimulation, 0));
+    byId("config-form").addEventListener("reset", () => root.setTimeout(resetSimulation, 0));
     byId("ring-size").addEventListener("input", () => {
       updateNumericBounds(true);
       markConfigurationPending();
@@ -607,9 +621,7 @@
     byId("missing-pattern").addEventListener("input", markConfigurationPending);
     byId("random-seed").addEventListener("input", markConfigurationPending);
     byId("observer-truth").addEventListener("change", () => simulation && renderRing(simulation.observerFrame()));
-    byId("speed-range").addEventListener("input", () => {
-      byId("speed-label").textContent = `${byId("speed-range").value} rounds/s`;
-    });
+    byId("speed-range").addEventListener("input", updateSpeedLabel);
     byId("clear-log-button").addEventListener("click", () => {
       if (!simulation) return;
       visibleLogStart = simulation.observerFrame().events.length;
