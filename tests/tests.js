@@ -501,21 +501,91 @@
     assert(frame.claims.some((claim) => claim.correct === true), "the open-then-permanent-cut execution did not terminate");
   });
 
-  test("FollowReturn is entered only when the return edge is present", () => {
-    const script = [3].concat(Array(199).fill(2));
+  test("an available agent joins a pending return even when the return edge is absent", () => {
     const simulation = new G.Simulation({
-      n: 5,
-      blackHole: 0,
-      positions: [1, 2, 3],
-      scheduler: { type: "scripted", script, repeat: false },
+      n: 6,
+      blackHole: 5,
+      positions: [0, 1, 3],
+      scheduler: { type: "scripted", script: [1, 0, null, null], repeat: false },
     });
     simulation.step();
     const second = simulation.step();
-    const encountered = second.agents.find((agent) => agent.id === 2);
-    assert(encountered.position === 4, "the non-returning agent must continue clockwise when the return edge is absent");
-    assert(encountered.memory.mode === G.Mode.PHASE1_CW, "a blocked follower was left at the probe endpoint");
-    const frame = runUntilClaim(simulation, 198);
-    assert(frame.claims.some((claim) => claim.correct === true), "the blocked-return regression did not terminate");
+    const owner = second.agents.find((agent) => agent.id === 0);
+    const follower = second.agents.find((agent) => agent.id === 1);
+    assert(owner.position === 1 && follower.position === 1,
+      "both agents must wait at the probe endpoint while the return edge is absent");
+    assert(follower.memory.mode === G.Mode.FOLLOW_RETURN && follower.memory.stage === G.Stage.PROBE,
+      "the available agent did not commit to the pending return");
+    assert(follower.carriedPebbles === 1,
+      "the follower incorrectly started a separate cautious step");
+
+    const third = simulation.step();
+    assert(third.agents.find((agent) => agent.id === 0).position === 0
+      && third.agents.find((agent) => agent.id === 1).position === 0,
+    "the joined agents did not return together when the edge reappeared");
+
+    const fourth = simulation.step();
+    const jointLeader = fourth.agents.find((agent) => agent.id === 0);
+    const jointAvanguard = fourth.agents.find((agent) => agent.id === 1);
+    assert(jointLeader.position === 1 && jointAvanguard.position === 1,
+      "the joined agents did not make the common final crossing");
+    assert(jointLeader.memory.mode === G.Mode.JOINT_LEADER
+      && jointAvanguard.memory.mode === G.Mode.JOINT_AVANGUARD,
+    "the completed shared return did not create JointCW roles");
+    assert(JSON.stringify(jointLeader.memory.jointGroupIds) === JSON.stringify([0, 1])
+      && JSON.stringify(jointAvanguard.memory.jointGroupIds) === JSON.stringify([0, 1]),
+    "the new JointCW group does not contain both returning agents");
+  });
+
+  test("committed Phase-1 states do not abandon their current step for another probe", () => {
+    const probe = {
+      id: 1,
+      phase: 1,
+      mode: G.Mode.PHASE1_CW,
+      stage: G.Stage.PROBE,
+      role: G.Role.NONE,
+      event: G.MessageEvent.CAUTIOUS_PROBE,
+      jointGroupIds: [],
+    };
+    const finalCrossing = new G.AgentMachine({
+      id: 0,
+      n: 6,
+      initialMemory: {
+        round: 2,
+        phase: 1,
+        mode: G.Mode.PHASE1_CW,
+        stage: G.Stage.FINAL_CROSSING,
+      },
+    });
+    const finalPlan = activate(finalCrossing, localView({
+      ports: { clockwise: true, counterClockwise: true },
+      coLocatedIds: [0, 1],
+      messages: [probe],
+    }));
+    assert(finalPlan.intent.action === G.Action.MOVE_CW
+      && finalPlan.memory.mode === G.Mode.PHASE1_CW
+      && finalPlan.memory.stage === G.Stage.READY,
+    "an agent abandoned its required final crossing for an unrelated probe");
+
+    const waiter = new G.AgentMachine({
+      id: 0,
+      n: 6,
+      initialMemory: {
+        round: 2,
+        phase: 1,
+        mode: G.Mode.PHASE1_WAIT,
+        stage: G.Stage.WAITING,
+      },
+    });
+    const waitingPlan = activate(waiter, localView({
+      ports: { clockwise: false, counterClockwise: true },
+      pebbleCount: 1,
+      coLocatedIds: [0, 1],
+      messages: [probe],
+    }));
+    assert(waitingPlan.intent.action === G.Action.STAY
+      && waitingPlan.memory.mode === G.Mode.PHASE1_WAIT,
+    "an agent waiting at a marker abandoned that commitment for an unrelated probe");
   });
 
   test("JointCW partners stay committed under the reported permanent-cut schedule", () => {

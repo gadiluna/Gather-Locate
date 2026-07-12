@@ -30,5 +30,13 @@ require("../src/kernel.js");
 require("./tests.js");
 
 const failures = document.documentElement.dataset.testFailures;
-if (failures !== "0") throw new Error(`${failures} simulator tests failed`);
+if (failures !== "0") {
+  const textOf = (element) => [element.textContent, ...element.children.map(textOf)]
+    .filter(Boolean)
+    .join("\n");
+  for (const result of elements.get("results").children) {
+    if (result.className === "fail") console.error(textOf(result));
+  }
+  throw new Error(`${failures} simulator tests failed`);
+}
 console.log(elements.get("summary").textContent);

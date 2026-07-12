@@ -181,13 +181,6 @@
     return false;
   }
 
-  function startsJointStepNow(memory, view) {
-    return view.ports.clockwise
-      && memory.stage === Stage.READY
-      && (memory.mode === Mode.JOINT_LEADER || memory.mode === Mode.JOINT_AVANGUARD)
-      && jointGroupReady(memory, view);
-  }
-
   function isAvailableForPhase1Group(state) {
     return (state.mode === Mode.PHASE1_CW && state.stage === Stage.READY)
       || ((state.mode === Mode.JOINT_LEADER || state.mode === Mode.JOINT_AVANGUARD)
@@ -916,18 +909,15 @@
       enterPhase2(plan, view);
     }
 
-    // A Phase-1 agent meeting a probe at its clockwise endpoint follows that
-    // probe back before applying ordinary meeting rules.
+    // An available Phase-1 agent meeting a probe at its clockwise endpoint
+    // commits to that probe's return before applying ordinary meeting rules.
+    // If the counter-clockwise edge is absent, it remains committed here and
+    // retries the return on later activations.
     if (
       memory.phase === 1
       && signalFor(memory).event !== PROBE_EVENT
       && view.messages.some((message) => message.event === PROBE_EVENT)
-      && view.ports.counterClockwise
-      && memory.mode !== Mode.RT_LEADER
-      && memory.mode !== Mode.RT_AVANGUARD
-      && memory.mode !== Mode.RT_RETROGUARD
-      && !hasCommittedJointStep(memory)
-      && !startsJointStepNow(memory, view)
+      && isAvailableForPhase1Group(memory)
     ) {
       memory.mode = Mode.FOLLOW_RETURN;
       memory.stage = Stage.PROBE;
