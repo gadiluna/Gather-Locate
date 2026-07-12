@@ -72,13 +72,34 @@
     return { n, blackHole, positions, scheduler: schedulerConfig() };
   }
 
-  function updateNumericBounds() {
+  function updateNumericBounds(normalizeStarts = false) {
     const n = Math.max(4, Math.min(60, Number(byId("ring-size").value) || 4));
-    for (const id of ["black-hole", "agent-0-start", "agent-1-start", "agent-2-start"]) {
+    const boundedIds = ["black-hole", "agent-0-start", "agent-1-start", "agent-2-start"];
+    for (const id of boundedIds) {
       const input = byId(id);
       input.max = String(n - 1);
       if (Number(input.value) >= n) input.value = String(n - 1);
     }
+
+    // Shrinking the ring must not clamp several values onto node n-1. Keep
+    // every still-valid start, and deterministically relocate only starts
+    // that became invalid, duplicated, or equal to the black hole.
+    if (normalizeStarts) {
+      const blackHole = Number(byId("black-hole").value);
+      const unavailable = new Set([blackHole]);
+      for (const id of [0, 1, 2]) {
+        const input = byId(`agent-${id}-start`);
+        const configured = Number(input.value);
+        let start = configured;
+        if (!Number.isInteger(start) || start < 0 || start >= n || unavailable.has(start)) {
+          start = 0;
+          while (unavailable.has(start)) start += 1;
+          input.value = String(start);
+        }
+        unavailable.add(start);
+      }
+    }
+
     const select = byId("manual-edge");
     const previous = select.value;
     select.replaceChildren(new Option("None", "none"));
@@ -564,7 +585,7 @@
     byId("play-button").addEventListener("click", () => (playing ? pause() : play()));
     byId("reset-button").addEventListener("click", () => root.setTimeout(resetSimulation, 0));
     byId("ring-size").addEventListener("input", () => {
-      updateNumericBounds();
+      updateNumericBounds(true);
       markConfigurationPending();
     });
     for (const id of ["black-hole", "agent-0-start", "agent-1-start", "agent-2-start"]) {
