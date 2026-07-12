@@ -291,7 +291,7 @@
   function setForward(memory) {
     memory.phase = 3;
     memory.mode = Mode.PHASE3_SEARCH;
-    memory.role = Role.FORWARD;
+    memory.role = Role.SCOUT;
     memory.stage = Stage.MOVING;
     memory.expectReturn = false;
     memory.jointPartnerId = null;
@@ -517,7 +517,7 @@
         setAction(plan, Action.STAY, "the return meets a waiting agent; both start BackwardCP");
       } else if (memory.phase >= 3) {
         setForward(memory);
-        setAction(plan, Action.STAY, "the returning agent is isolated and assumes the Forward role in Phase 3");
+        setAction(plan, Action.STAY, "the returning agent is isolated and executes Forward as Scout in Phase 3");
       } else {
         setPhase2Idle(memory);
         setAction(plan, Action.STAY, "the returning agent is isolated and waits for the Phase-3 boundary");
@@ -801,7 +801,7 @@
             terminate(plan, claim, "at Phase-3 entry, Forward identifies the clockwise neighbour of the pebble already at this node");
           } else {
             setForward(memory);
-            setAction(plan, Action.MOVE_CW, "the Phase-2 timeout expired while the return remained blocked; assume Forward in Phase 3");
+            setAction(plan, Action.MOVE_CW, "the Phase-2 timeout expired while the return remained blocked; execute Forward as Scout in Phase 3");
           }
         } else {
           if (view.ports.counterClockwise) memory.stage = Stage.RETURNED;
@@ -816,8 +816,9 @@
         if (memory.p2Elapsed >= timeout && !view.ports.clockwise) {
           if (view.pebbleCount > 0) requestPebble(plan, PebbleOperation.TAKE_ALL, 0, "remove the local pebble before the Phase-3 Forward transition");
           setForward(memory);
-          setAction(plan, Action.MOVE_CW, "the Phase-2 timeout expired and the clockwise edge is absent; assume Forward in Phase 3");
+          setAction(plan, Action.MOVE_CW, "the Phase-2 timeout expired and the clockwise edge is absent; execute Forward as Scout in Phase 3");
         } else {
+          if (view.ports.clockwise) memory.expectReturn = true;
           memory.p2Elapsed += 1;
           setAction(plan, Action.STAY, "wait for a possible returning pebble owner");
         }
@@ -825,7 +826,7 @@
       }
 
       case Mode.PHASE2_IDLE:
-        setAction(plan, Action.STAY, "wait until Phase 3 before assuming the Forward role");
+        setAction(plan, Action.STAY, "wait until Phase 3 before executing Forward as Scout");
         break;
 
       case Mode.BCP_AGGRESSIVE_LEADER:
@@ -855,13 +856,13 @@
           terminate(plan, claim, "Forward sees a pebble and identifies its clockwise neighbour");
           break;
         }
-        const forwardPeers = view.messages.filter((message) => message.role === Role.FORWARD);
+        const forwardPeers = view.messages.filter((message) => message.role === Role.SCOUT);
         if (forwardPeers.length === 1 && allIds(memory, view).length === 2) {
           setBCPRole(memory, allIds(memory, view));
           plan.departureThisRound = memory.role === Role.AGGRESSIVE_LEADER;
           planModeAction(plan, view);
         } else if (forwardPeers.length > 1) {
-          setAction(plan, Action.STAY, "unreachable configuration: three Forward agents are co-located");
+          setAction(plan, Action.STAY, "unreachable configuration: three Scouts executing Forward are co-located");
         } else {
           setAction(plan, Action.MOVE_CW, "Forward moves clockwise without placing a pebble");
         }

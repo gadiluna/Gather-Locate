@@ -408,7 +408,7 @@
       AVANGUARD: "A",
       RETROGUARD: "R",
       AGGRESSIVE_LEADER: "AL",
-      FORWARD: "F",
+      SCOUT: "S",
       NONE: "",
     };
     return map[role] !== undefined ? map[role] : "";

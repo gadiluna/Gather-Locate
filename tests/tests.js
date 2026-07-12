@@ -752,7 +752,7 @@
     assert(result.memory.p2Elapsed === 1, "round 6n+1 must be the first counted timeout round");
   });
 
-  test("an isolated non-returning agent waits in Phase 2 and takes Forward only in Phase 3", () => {
+  test("an isolated non-returning agent waits in Phase 2 and starts Forward only in Phase 3", () => {
     const n = 5;
     const phase2Agent = new G.AgentMachine({
       id: 0,
@@ -766,7 +766,7 @@
     });
     const phase2Result = activate(phase2Agent, localView());
     assert(phase2Result.memory.phase === 2 && phase2Result.memory.role === G.Role.NONE,
-      "an isolated Phase-2 agent must not take Forward early");
+      "an isolated Phase-2 agent must not start Forward early");
     assert(phase2Result.intent.action === G.Action.STAY,
       "an isolated Phase-2 agent must wait for the Phase-3 boundary");
 
@@ -781,10 +781,10 @@
       },
     });
     const phase3Result = activate(phase3Agent, localView());
-    assert(phase3Result.memory.phase === 3 && phase3Result.memory.role === G.Role.FORWARD,
-      "the isolated agent must take Forward at Phase-3 entry");
+    assert(phase3Result.memory.phase === 3 && phase3Result.memory.role === G.Role.SCOUT,
+      "the isolated agent must start Forward as Scout at Phase-3 entry");
     assert(phase3Result.intent.action === G.Action.MOVE_CW,
-      "the new Forward agent must apply its movement rule in the same activation");
+      "the new Scout must apply Forward's movement rule in the same activation");
   });
 
   test("an already-resolved isolated waiter may remove the permanent marker at Phase-3 entry", () => {
@@ -809,8 +809,8 @@
     const marker = frame.pebbles.find((pebble) => pebble.id === "p0");
     assert(frame.claims.some((claim) => claim.correct === true),
       "the marker owner was destroyed without a later correct termination");
-    assert(survivor && survivor.memory.phase === 3 && survivor.memory.role === G.Role.FORWARD,
-      "the isolated waiter did not take Forward at the Phase-3 boundary");
+    assert(survivor && survivor.memory.phase === 3 && survivor.memory.role === G.Role.SCOUT,
+      "the isolated waiter did not start Forward at the Phase-3 boundary");
     assert(marker.status === "CARRIED" && marker.carrierId === survivor.id,
       "the locally indistinguishable permanent marker was not removed before Forward");
   });
@@ -860,13 +860,49 @@
     const waitPreparation = waiter.prepare(waiterView);
     waiter.decide(waiterView, { requested: waitPreparation.pebbleOperation, success: true, count: 1, reason: "TEST" });
     activate(returner, returnerView);
-    assert(waiter.snapshot().role === G.Role.FORWARD, "marked-side waiter must take the Forward role");
-    assert(returner.snapshot().role === G.Role.FORWARD, "returning-side agent must take the Forward role");
+    assert(waiter.snapshot().role === G.Role.SCOUT, "marked-side waiter must start Forward as Scout");
+    assert(returner.snapshot().role === G.Role.SCOUT, "returning-side agent must start Forward as Scout");
     assert(waiter.snapshot().phase === 3, "marked-side waiter must enter Phase 3 at the timeout");
     assert(returner.snapshot().phase === 3, "returning-side agent must enter Phase 3 at the timeout");
     assert(waiter.snapshot().mode === G.Mode.PHASE3_SEARCH, "marked-side waiter must enter Phase-3 search");
     assert(returner.snapshot().mode === G.Mode.PHASE3_SEARCH, "returning-side agent must enter Phase-3 search");
     assert(waiter.snapshot().carriedPebbles === 1, "the marked-side agent must take the temporary pebble");
+  });
+
+  test("one present-edge round lets a Phase-3 waiter detect a missing owner", () => {
+    const n = 5;
+    const timeout = 4 * n * n;
+    const waiter = new G.AgentMachine({
+      id: 0,
+      n,
+      initialMemory: {
+        round: 6 * n + timeout + 1,
+        phase: 2,
+        mode: G.Mode.PHASE2_WAIT,
+        stage: G.Stage.WAITING,
+        p2Elapsed: timeout,
+        carriedPebbles: 0,
+      },
+    });
+    const view = localView({
+      ports: { clockwise: true, counterClockwise: true },
+      pebbleCount: 1,
+    });
+
+    const waitingRound = activate(waiter, view);
+    assert(waitingRound.memory.expectReturn === true,
+      "the present clockwise edge must arm the missing-return test");
+    assert(waitingRound.intent.action === G.Action.STAY,
+      "the waiter must remain at the pebble during the present-edge round");
+
+    const missingReturn = activate(waiter, view);
+    assert(missingReturn.intent.action === G.Action.TERMINATE,
+      "the waiter must terminate when no owner arrives at the next activation");
+    equal(
+      missingReturn.intent.claim,
+      G.makeClaim(1, n - 1, "expected cautious return did not occur"),
+      "the waiter must identify the clockwise neighbour",
+    );
   });
 
   test("a return completed at the timeout boundary is handled before Forward", () => {
@@ -881,6 +917,7 @@
         mode: G.Mode.PHASE2_WAIT,
         stage: G.Stage.WAITING,
         p2Elapsed: timeout,
+        expectReturn: true,
       },
     });
     const returner = new G.AgentMachine({
@@ -964,7 +1001,7 @@
         phase: 3,
         round: 6 * n + 4 * n * n + 1,
         mode: G.Mode.PHASE3_SEARCH,
-        role: G.Role.FORWARD,
+        role: G.Role.SCOUT,
         stage: G.Stage.MOVING,
       },
     });
@@ -973,18 +1010,18 @@
     equal(result.intent.claim, G.makeClaim(1, n - 1, "Forward encountered the permanent black-hole mark"));
   });
 
-  test("two Forward agents start BackwardCP movement in their meeting activation", () => {
+  test("two Scouts executing Forward start BackwardCP movement in their meeting activation", () => {
     const n = 8;
     const round = 6 * n + 4 * n * n + 2;
     const smaller = new G.AgentMachine({
       id: 0,
       n,
-      initialMemory: { phase: 3, round, mode: G.Mode.PHASE3_SEARCH, role: G.Role.FORWARD, stage: G.Stage.MOVING },
+      initialMemory: { phase: 3, round, mode: G.Mode.PHASE3_SEARCH, role: G.Role.SCOUT, stage: G.Stage.MOVING },
     });
     const larger = new G.AgentMachine({
       id: 1,
       n,
-      initialMemory: { phase: 3, round, mode: G.Mode.PHASE3_SEARCH, role: G.Role.FORWARD, stage: G.Stage.MOVING },
+      initialMemory: { phase: 3, round, mode: G.Mode.PHASE3_SEARCH, role: G.Role.SCOUT, stage: G.Stage.MOVING },
     });
     const smallerMessage = smaller.announce();
     const largerMessage = larger.announce();
@@ -1047,7 +1084,7 @@
       const modes = active.map((agent) => agent.memory.mode).sort();
       sawSeparatedTimeout ||= modes.includes(G.Mode.PHASE2_RETURN) && modes.includes(G.Mode.PHASE2_WAIT);
       const roles = active.map((agent) => agent.memory.role);
-      sawBothForward ||= roles.length === 2 && roles.every((role) => role === G.Role.FORWARD);
+      sawBothForward ||= roles.length === 2 && roles.every((role) => role === G.Role.SCOUT);
     });
     assert(sawExactlyTwo, "the execution did not exercise the two-survivor case");
     assert(sawSeparatedTimeout, "the survivors did not remain on opposite endpoints through Phase 2");
@@ -1058,7 +1095,7 @@
     );
   });
 
-  test("two Forward agents that meet switch to BackwardCP and still terminate", () => {
+  test("two Scouts executing Forward switch to BackwardCP and still terminate", () => {
     const n = 8;
     const script = Array.from({ length: 500 }, (_item, index) => {
       const round = index + 1;
@@ -1076,7 +1113,7 @@
     let sawForward = false;
     let sawBackwardCP = false;
     const frame = runUntilClaim(simulation, 500, (current) => {
-      sawForward ||= current.agents.some((agent) => agent.memory.role === G.Role.FORWARD);
+      sawForward ||= current.agents.some((agent) => agent.memory.role === G.Role.SCOUT);
       sawBackwardCP ||= current.agents.some((agent) => agent.memory.mode.startsWith("BCP_"));
     });
     assert(sawForward, "the execution never entered Forward");
