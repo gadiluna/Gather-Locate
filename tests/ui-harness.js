@@ -169,6 +169,38 @@ elements.get("agent-1-start").value = "3";
 elements.get("agent-2-start").value = "9";
 elements.get("config-form").dispatch("submit");
 
+// A temporarily invalid number must not rebuild dependent controls from a
+// fractional ring. Keep the active ring's bounds until the draft is valid,
+// then report the validation error through the simulator UI.
+ringSize.value = "8.5";
+ringSize.dispatch("input");
+if (elements.get("manual-edge").options.length !== 13) {
+  throw new Error("A fractional ring-size draft corrupted the edge selector");
+}
+elements.get("config-form").dispatch("submit");
+if (!elements.get("result-badge").textContent.includes("Ring size must be an integer")) {
+  throw new Error("Invalid ring size did not produce the visible validation error");
+}
+
+ringSize.value = "12";
+ringSize.dispatch("input");
+elements.get("black-hole").value = "7";
+elements.get("agent-0-start").value = "0";
+elements.get("agent-1-start").value = "3";
+elements.get("agent-2-start").value = "9";
+elements.get("config-form").dispatch("submit");
+
+// Next event must advance to a protocol transition and paint that frame.
+elements.get("next-event-button").dispatch("click");
+if (Number(elements.get("round-value").textContent) <= 0) {
+  throw new Error("Next event did not display the protocol transition it reached");
+}
+elements.get("config-form").dispatch("submit");
+
+if (!(elements.get("config-form").listeners.get("reset") || []).length) {
+  throw new Error("Native form reset is not wired to rebuild the simulation state");
+}
+
 const schedulerMode = elements.get("scheduler-mode");
 schedulerMode.value = "pattern";
 schedulerMode.dispatch("change");
